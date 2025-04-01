@@ -1,0 +1,23 @@
+# Enable rewrite engine
+RewriteEngine On
+
+# Set base directory
+RewriteBase /
+
+# Allow all access
+Require all granted
+
+# Handle Next.js routing
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^(.*)$ http://localhost:3001/$1 [P,L]
+
+# Set proxy headers
+ProxyPassReverse / http://localhost:3001/
+ProxyPreserveHost On
+
+# Enable proxy modules
+<IfModule mod_proxy.c>
+    ProxyPass / http://localhost:3001/
+    ProxyPassReverse / http://localhost:3001/
+</IfModule>
