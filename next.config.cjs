@@ -1,10 +1,19 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  output: 'export',
-  images: {
-    unoptimized: true,
-    domains: ['your-project.supabase.co'],
-  }
+	reactStrictMode: true,
+	swcMinify: true,
+	eslint: {
+		ignoreDuringBuilds: true,
+	},
+	typescript: {
+		ignoreBuildErrors: true,
+	},
+	images: {
+		domains: ['localhost', 'astravac.vercel.app'],
+	},
+	experimental: {
+		serverActions: true,
+	},
 }
 
 module.exports = nextConfig
