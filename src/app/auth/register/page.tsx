@@ -35,6 +35,9 @@ export default function RegisterPage() {
       const { data: authData, error: authError } = await supabase.auth.signUp({
         email: data.email,
         password: data.password,
+        options: {
+          emailRedirectTo: `${window.location.origin}/auth/callback`,
+        },
       })
 
       if (authError) throw authError
@@ -53,8 +56,8 @@ export default function RegisterPage() {
 
       if (dbError) throw dbError
 
-      // Rediriger vers la page de connexion
-      router.push('/auth/login?registered=true')
+      // Rediriger vers la page de connexion avec un message de confirmation
+      router.push('/auth/login?registered=true&emailConfirmation=true')
     } catch (error) {
       console.error('Erreur lors de l\'inscription:', error)
       alert('Une erreur est survenue lors de l\'inscription. Veuillez réessayer.')
