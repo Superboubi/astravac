@@ -1,6 +1,6 @@
 'use client'
 
-import { Suspense } from 'react'
+import { Suspense, useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
 
@@ -9,15 +9,17 @@ function CallbackContent() {
   const searchParams = useSearchParams()
   const code = searchParams.get('code')
 
-  const handleCallback = async () => {
-    if (code) {
-      const supabase = createClientComponentClient()
-      await supabase.auth.exchangeCodeForSession(code)
+  useEffect(() => {
+    const handleCallback = async () => {
+      if (code) {
+        const supabase = createClientComponentClient()
+        await supabase.auth.exchangeCodeForSession(code)
+      }
+      router.push('/dashboard')
     }
-    router.push('/dashboard')
-  }
 
-  handleCallback()
+    handleCallback()
+  }, [code, router])
 
   return null
 }
