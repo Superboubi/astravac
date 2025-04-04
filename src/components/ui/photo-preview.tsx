@@ -1,3 +1,5 @@
+'use client'
+
 import { useState } from 'react'
 import { motion } from 'framer-motion'
 import { TrashIcon, XMarkIcon, ArrowDownTrayIcon } from '@heroicons/react/24/outline'
@@ -7,7 +9,7 @@ interface PhotoPreviewProps {
   url: string
   name: string
   uploaded_at: string
-  onDelete?: () => void
+  onDelete: () => void
   isSelected?: boolean
   onSelect?: () => void
   viewMode?: 'grid' | 'list'
@@ -36,15 +38,7 @@ export function PhotoPreview({
     }
   }
 
-  const handleDelete = (e: React.MouseEvent) => {
-    e.stopPropagation()
-    if (onDelete) {
-      onDelete()
-    }
-  }
-
-  const handleDownload = async (e: React.MouseEvent) => {
-    e.stopPropagation()
+  const handleDownload = async () => {
     try {
       const response = await fetch(url)
       const blob = await response.blob()
@@ -89,7 +83,7 @@ export function PhotoPreview({
                   <ArrowDownTrayIcon className="h-5 w-5" />
                 </button>
                 <button
-                  onClick={handleDelete}
+                  onClick={onDelete}
                   className="p-1 text-white hover:text-red-400 transition-colors"
                 >
                   <TrashIcon className="h-5 w-5" />
@@ -107,49 +101,34 @@ export function PhotoPreview({
   }
 
   return (
-    <div 
-      className="relative group"
+    <div
+      className="relative aspect-square rounded-lg overflow-hidden group"
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
     >
-      <div
-        className={`relative overflow-hidden rounded-lg cursor-pointer transition-all duration-200 ${
+      <img
+        src={url}
+        alt={name}
+        className={`w-full h-full object-cover ${
           isSelected ? 'ring-2 ring-blue-500' : ''
         }`}
-        onClick={handleClick}
-      >
-        <Image
-          src={url}
-          alt={name}
-          width={300}
-          height={300}
-          className="object-cover w-full h-full"
-        />
-        <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-20 transition-all duration-200" />
-        {isHovered && (
-          <div className="absolute inset-0 flex items-center justify-center">
-            <div className="flex items-center space-x-2">
-              <button
-                onClick={handleDownload}
-                className="p-2 text-white hover:text-gray-300 rounded-full bg-black bg-opacity-50 hover:bg-opacity-70 transition-all"
-              >
-                <ArrowDownTrayIcon className="h-5 w-5" />
-              </button>
-              <button
-                onClick={handleDelete}
-                className="p-2 text-red-400 hover:text-red-300 rounded-full bg-black bg-opacity-50 hover:bg-opacity-70 transition-all"
-              >
-                <TrashIcon className="h-5 w-5" />
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
-      <div className="mt-2">
-        <p className="text-xs text-gray-500">
-          {new Date(uploaded_at).toLocaleDateString()}
-        </p>
-      </div>
+      />
+      {isHovered && (
+        <div className="absolute inset-0 flex items-center justify-center gap-2 bg-black/50">
+          <button
+            onClick={handleDownload}
+            className="p-2 rounded-full bg-white/10 hover:bg-white/20 transition-colors"
+          >
+            <ArrowDownTrayIcon className="w-6 h-6 text-white" />
+          </button>
+          <button
+            onClick={onDelete}
+            className="p-2 rounded-full bg-white/10 hover:bg-white/20 transition-colors"
+          >
+            <TrashIcon className="w-6 h-6 text-white" />
+          </button>
+        </div>
+      )}
       {isPreviewOpen && (
         <div className="fixed inset-0 bg-black bg-opacity-75 z-50 flex items-center justify-center">
           <div className="relative max-w-4xl w-full mx-4">
