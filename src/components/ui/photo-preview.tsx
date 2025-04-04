@@ -1,129 +1,174 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
+import { motion } from 'framer-motion'
+import { TrashIcon, XMarkIcon, ArrowDownTrayIcon } from '@heroicons/react/24/outline'
+import Image from 'next/image'
 
 interface PhotoPreviewProps {
   url: string
   name: string
   uploaded_at: string
-  onDelete: () => void
+  onDelete?: () => void
+  isSelected?: boolean
+  onSelect?: () => void
+  viewMode?: 'grid' | 'list'
+  onClick?: () => void
 }
 
-export function PhotoPreview({ url, name, uploaded_at, onDelete }: PhotoPreviewProps) {
-  const [isOpen, setIsOpen] = useState(false)
-  const [isLoading, setIsLoading] = useState(true)
+export function PhotoPreview({
+  url,
+  name,
+  uploaded_at,
+  onDelete,
+  isSelected = false,
+  onSelect,
+  viewMode = 'grid',
+  onClick
+}: PhotoPreviewProps) {
+  const [isHovered, setIsHovered] = useState(false)
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false)
 
-  useEffect(() => {
-    const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        setIsOpen(false)
-      }
+  const handleClick = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (onSelect) {
+      onSelect()
+    } else if (onClick) {
+      onClick()
     }
+  }
 
-    if (isOpen) {
-      document.addEventListener('keydown', handleEscape)
-      document.body.style.overflow = 'hidden'
+  const handleDelete = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (onDelete) {
+      onDelete()
     }
+  }
 
-    return () => {
-      document.removeEventListener('keydown', handleEscape)
-      document.body.style.overflow = 'unset'
+  const handleDownload = async (e: React.MouseEvent) => {
+    e.stopPropagation()
+    try {
+      const response = await fetch(url)
+      const blob = await response.blob()
+      const downloadUrl = window.URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = downloadUrl
+      link.download = name
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      window.URL.revokeObjectURL(downloadUrl)
+    } catch (error) {
+      console.error('Erreur lors du téléchargement:', error)
     }
-  }, [isOpen])
+  }
 
-  return (
-    <>
+  if (viewMode === 'list') {
+    return (
       <div 
-        className="bg-white rounded-lg shadow-md overflow-hidden cursor-pointer hover:shadow-lg transition-shadow"
-        onClick={() => setIsOpen(true)}
+        className="flex items-center space-x-4 w-full cursor-pointer"
+        onClick={handleClick}
       >
-        <div className="relative aspect-square group">
+        <div className="relative w-16 h-16 flex-shrink-0">
           <img
             src={url}
             alt={name}
-            className="w-full h-full object-cover"
-            onLoad={() => setIsLoading(false)}
+            className={`w-full h-full object-cover rounded-lg ${
+              isSelected ? 'ring-2 ring-blue-500' : ''
+            }`}
           />
-          {isLoading && (
-            <div className="absolute inset-0 flex items-center justify-center bg-gray-100">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
-            </div>
-          )}
-          <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-40 transition-opacity flex items-center justify-center">
-            <span className="text-white opacity-0 group-hover:opacity-100 transition-opacity">
-              Cliquez pour agrandir
-            </span>
-          </div>
-          <button
-            onClick={(e) => {
-              e.stopPropagation()
-              onDelete()
-            }}
-            className="absolute top-2 right-2 bg-red-500 text-white p-2 rounded-full hover:bg-red-600 transition-colors opacity-0 group-hover:opacity-100"
-          >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              className="h-5 w-5"
-              viewBox="0 0 20 20"
-              fill="currentColor"
+          {isHovered && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="absolute inset-0 bg-black bg-opacity-50 rounded-lg flex items-center justify-center"
             >
-              <path
-                fillRule="evenodd"
-                d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
-                clipRule="evenodd"
-              />
-            </svg>
-          </button>
+              <div className="flex items-center space-x-2">
+                <button
+                  onClick={handleDownload}
+                  className="p-1 text-white hover:text-gray-300 transition-colors"
+                >
+                  <ArrowDownTrayIcon className="h-5 w-5" />
+                </button>
+                <button
+                  onClick={handleDelete}
+                  className="p-1 text-white hover:text-red-400 transition-colors"
+                >
+                  <TrashIcon className="h-5 w-5" />
+                </button>
+              </div>
+            </motion.div>
+          )}
         </div>
-        <div className="p-4">
-          <h3 className="font-medium truncate">{name}</h3>
-          <p className="text-sm text-gray-500">
-            {new Date(uploaded_at).toLocaleDateString()}
-          </p>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-medium text-gray-900 truncate">{name}</p>
+          <p className="text-xs text-gray-500">{uploaded_at}</p>
         </div>
       </div>
+    )
+  }
 
-      {/* Modal de prévisualisation */}
-      {isOpen && (
-        <div 
-          className="fixed inset-0 bg-black bg-opacity-75 z-50 flex items-center justify-center p-4"
-          onClick={() => setIsOpen(false)}
-        >
-          <div className="relative max-w-4xl w-full">
-            <button
-              onClick={() => setIsOpen(false)}
-              className="absolute -top-12 right-0 text-white hover:text-gray-300 transition-colors"
-            >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                className="h-8 w-8"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
+  return (
+    <div 
+      className="relative group"
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+    >
+      <div
+        className={`relative overflow-hidden rounded-lg cursor-pointer transition-all duration-200 ${
+          isSelected ? 'ring-2 ring-blue-500' : ''
+        }`}
+        onClick={handleClick}
+      >
+        <Image
+          src={url}
+          alt={name}
+          width={300}
+          height={300}
+          className="object-cover w-full h-full"
+        />
+        <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-20 transition-all duration-200" />
+        {isHovered && (
+          <div className="absolute inset-0 flex items-center justify-center">
+            <div className="flex items-center space-x-2">
+              <button
+                onClick={handleDownload}
+                className="p-2 text-white hover:text-gray-300 rounded-full bg-black bg-opacity-50 hover:bg-opacity-70 transition-all"
               >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M6 18L18 6M6 6l12 12"
-                />
-              </svg>
-            </button>
-            <div className="relative">
-              <img
-                src={url}
-                alt={name}
-                className="w-full h-auto rounded-lg"
-                style={{ maxHeight: '80vh' }}
-              />
-              <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black to-transparent p-4 rounded-b-lg">
-                <h3 className="text-xl font-semibold text-white">{name}</h3>
-                <p className="text-sm text-gray-300">
-                  Ajoutée le {new Date(uploaded_at).toLocaleDateString()}
-                </p>
-              </div>
+                <ArrowDownTrayIcon className="h-5 w-5" />
+              </button>
+              <button
+                onClick={handleDelete}
+                className="p-2 text-red-400 hover:text-red-300 rounded-full bg-black bg-opacity-50 hover:bg-opacity-70 transition-all"
+              >
+                <TrashIcon className="h-5 w-5" />
+              </button>
             </div>
+          </div>
+        )}
+      </div>
+      <div className="mt-2">
+        <p className="text-xs text-gray-500">
+          {new Date(uploaded_at).toLocaleDateString()}
+        </p>
+      </div>
+      {isPreviewOpen && (
+        <div className="fixed inset-0 bg-black bg-opacity-75 z-50 flex items-center justify-center">
+          <div className="relative max-w-4xl w-full mx-4">
+            <button
+              onClick={() => setIsPreviewOpen(false)}
+              className="absolute top-4 right-4 text-white hover:text-gray-300"
+            >
+              <XMarkIcon className="h-8 w-8" />
+            </button>
+            <Image
+              src={url}
+              alt={name}
+              width={1200}
+              height={800}
+              className="max-h-[80vh] w-auto mx-auto"
+            />
           </div>
         </div>
       )}
-    </>
+    </div>
   )
 } 

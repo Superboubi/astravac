@@ -9,7 +9,7 @@ const nextConfig = {
 		ignoreBuildErrors: true,
 	},
 	images: {
-		domains: ['localhost', 'astravac.vercel.app'],
+		domains: ['localhost', 'astravac.vercel.app', 'astravac.astravacances.fr'],
 	},
 	experimental: {
 		serverActions: true,
