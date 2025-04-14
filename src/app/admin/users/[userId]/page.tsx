@@ -7,6 +7,7 @@ import { supabase } from '@/lib/supabase'
 import { motion, AnimatePresence } from 'framer-motion'
 import { ArrowLeft, FolderPlus, Upload, Edit2, Trash2, Image as ImageIcon, Folder, Download, X, ChevronDown, ChevronUp } from 'lucide-react'
 import { PhotoGrid } from '@/components/PhotoGrid'
+import Image from 'next/image'
 
 interface User {
   id: string
@@ -15,6 +16,7 @@ interface User {
   role: 'user' | 'admin'
   folders: Folder[]
   created_at: string
+  avatar_url?: string
 }
 
 interface Folder {
@@ -51,6 +53,27 @@ export default function UserDetailsPage({ params }: { params: { userId: string }
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set())
   const [isExpanded, setIsExpanded] = useState<string | null>(null)
 
+  const fetchUserDetails = async () => {
+    try {
+      const { data: userData, error } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', params.userId)
+        .single()
+
+      if (error) throw error
+      setUser(userData)
+    } catch (error) {
+      console.error('Erreur lors de la récupération des détails de l\'utilisateur:', error)
+    }
+  }
+
+  useEffect(() => {
+    if (params.userId) {
+      fetchUserDetails()
+    }
+  }, [params.userId, fetchUserDetails])
+
   useEffect(() => {
     const checkAuth = async () => {
       const { data: { session } } = await supabase.auth.getSession()
@@ -74,57 +97,6 @@ export default function UserDetailsPage({ params }: { params: { userId: string }
     }
     checkAuth()
   }, [router, params.userId])
-
-  const fetchUserDetails = async () => {
-    try {
-      setIsLoading(true)
-      setError(null)
-
-      const { data: userData, error: userError } = await supabase
-        .from('users')
-        .select('*')
-        .eq('id', params.userId)
-        .single()
-
-      if (userError) throw userError
-
-      const { data: foldersData, error: foldersError } = await supabase
-        .from('folders')
-        .select('*')
-        .eq('user_id', params.userId)
-
-      if (foldersError) throw foldersError
-
-      const { data: photosData, error: photosError } = await supabase
-        .from('photos')
-        .select('*')
-        .eq('user_id', params.userId)
-
-      if (photosError) throw photosError
-
-      const userWithData = {
-        ...userData,
-        folders: foldersData.map(folder => ({
-          ...folder,
-          photoCount: photosData.filter(photo => photo.folder_id === folder.id).length,
-          lastModified: new Date(folder.updated_at).toLocaleDateString(),
-          photos: photosData
-            .filter(photo => photo.folder_id === folder.id)
-            .map(photo => ({
-              ...photo,
-              uploaded_at: new Date(photo.uploaded_at).toLocaleDateString()
-            }))
-        }))
-      }
-
-      setUser(userWithData)
-    } catch (error: any) {
-      console.error('Erreur lors du chargement des données:', error)
-      setError('Erreur lors du chargement des données')
-    } finally {
-      setIsLoading(false)
-    }
-  }
 
   const handleCreateFolder = async () => {
     if (!newFolderName.trim()) {
@@ -422,11 +394,15 @@ export default function UserDetailsPage({ params }: { params: { userId: string }
         >
           <div className="px-4 py-5 sm:px-6">
             <div className="flex items-center">
-              <div className="h-16 w-16 rounded-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center">
-                <span className="text-2xl font-medium text-white">
-                  {user.name.charAt(0)}
-                </span>
-              </div>
+              {user.avatar_url && (
+                <Image
+                  src={user.avatar_url}
+                  alt={`Avatar de ${user.name || 'utilisateur'}`}
+                  width={100}
+                  height={100}
+                  className="rounded-full"
+                />
+              )}
               <div className="ml-6">
                 <h3 className="text-2xl font-medium text-gray-900">{user.name}</h3>
                 <p className="mt-1 text-sm text-gray-500">{user.email}</p>

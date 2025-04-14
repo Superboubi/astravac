@@ -1,4 +1,4 @@
-import { supabase } from './supabase.ts'
+import { supabase } from './supabase'
 import { ArrowLeft, FolderPlus, Upload, Edit2, Trash2, Image as ImageIcon, Folder, Download, X } from 'lucide-react'
 
 async function seedDatabase() {
