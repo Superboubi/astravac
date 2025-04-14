@@ -3,19 +3,11 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Navbar from '@/components/Navbar'
-import PhotoPreview from '@/components/PhotoPreview'
-import { supabase } from '@/lib/supabase'
+import { PhotoPreview } from '@/components/ui/photo-preview'
 import { ImagePreview } from '@/components/ui/image-preview'
-
-interface Photo {
-  id: string
-  name: string
-  mime_type: string
-  image_data: string
-  uploaded_at: string
-  size: number
-  url: string
-}
+import { supabase } from '@/lib/supabase'
+import { Photo } from '@/types'
+import { PhotoPreviewProps } from '@/types/photo-preview'
 
 interface Folder {
   id: string
@@ -47,7 +39,21 @@ export default function FolderPage({ params }: { params: { folderId: string } })
 
         if (folderError) throw folderError
 
-        setFolder(folderData)
+        setFolder({
+          id: folderData.id,
+          name: folderData.name,
+          photos: folderData.photos.map((photoData: any) => ({
+            id: photoData.id,
+            name: photoData.name,
+            mime_type: photoData.mime_type,
+            image_data: photoData.image_data,
+            created_at: photoData.created_at,
+            size: photoData.size,
+            url: `data:${photoData.mime_type};base64,${photoData.image_data}`,
+            folder_id: photoData.folder_id,
+            user_id: photoData.user_id
+          }))
+        })
       } catch (err) {
         setError('Erreur lors du chargement du dossier')
         console.error(err)
@@ -139,9 +145,11 @@ export default function FolderPage({ params }: { params: { folderId: string } })
               name: photoData.name,
               mime_type: photoData.mime_type,
               image_data: photoData.image_data,
-              uploaded_at: photoData.created_at,
+              created_at: photoData.created_at,
               size: photoData.size,
-              url: `data:${photoData.mime_type};base64,${photoData.image_data}`
+              url: `data:${photoData.mime_type};base64,${photoData.image_data}`,
+              folder_id: photoData.folder_id,
+              user_id: photoData.user_id
             }]
           })
         }
@@ -158,7 +166,19 @@ export default function FolderPage({ params }: { params: { folderId: string } })
       handlePhotoSelect(photo.id)
       return
     }
-    setSelectedPhoto(photo)
+    // S'assurer que nous avons un objet Photo complet
+    const completePhoto: Photo = {
+      id: photo.id,
+      name: photo.name,
+      url: photo.url,
+      folder_id: photo.folder_id,
+      created_at: photo.created_at,
+      user_id: photo.user_id,
+      mime_type: photo.mime_type,
+      image_data: photo.image_data,
+      size: photo.size
+    }
+    setSelectedPhoto(completePhoto)
   }
 
   const handleDeleteClick = (photoId: string) => {
@@ -520,7 +540,7 @@ export default function FolderPage({ params }: { params: { folderId: string } })
                   <PhotoPreview
                     url={`data:${photo.mime_type};base64,${photo.image_data}`}
                     name={photo.name}
-                    uploaded_at={photo.uploaded_at}
+                    created_at={photo.created_at}
                     onDelete={() => handleDeleteClick(photo.id)}
                   />
                   {selectedPhotos.includes(photo.id) && (

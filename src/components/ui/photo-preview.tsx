@@ -3,11 +3,11 @@ import { useState, useEffect } from 'react'
 interface PhotoPreviewProps {
   url: string
   name: string
-  uploaded_at: string
+  created_at: string
   onDelete: () => void
 }
 
-export function PhotoPreview({ url, name, uploaded_at, onDelete }: PhotoPreviewProps) {
+export function PhotoPreview({ url, name, created_at, onDelete }: PhotoPreviewProps) {
   const [isOpen, setIsOpen] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
 
@@ -61,7 +61,7 @@ export function PhotoPreview({ url, name, uploaded_at, onDelete }: PhotoPreviewP
         <div className="mt-2">
           <h3 className="text-sm font-medium text-gray-900 truncate">{name}</h3>
           <p className="text-xs text-gray-500">
-            Ajoutée le {new Date(uploaded_at).toLocaleDateString()}
+            Ajoutée le {new Date(created_at).toLocaleDateString()}
           </p>
         </div>
       </div>
@@ -101,7 +101,7 @@ export function PhotoPreview({ url, name, uploaded_at, onDelete }: PhotoPreviewP
               <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black to-transparent p-4 rounded-b-lg">
                 <h3 className="text-xl font-semibold text-white">{name}</h3>
                 <p className="text-sm text-gray-300">
-                  Ajoutée le {new Date(uploaded_at).toLocaleDateString()}
+                  Ajoutée le {new Date(created_at).toLocaleDateString()}
                 </p>
               </div>
             </div>

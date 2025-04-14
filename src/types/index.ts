@@ -5,4 +5,7 @@ export interface Photo {
   folder_id: string
   created_at: string
   user_id: string
+  mime_type: string
+  image_data: string
+  size: number
 } 
