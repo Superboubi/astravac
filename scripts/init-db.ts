@@ -1,7 +1,13 @@
 import { createClient } from '@supabase/supabase-js'
-import config from '../src/lib/config.js'
 
-const supabase = createClient(config.supabase.url, config.supabase.anonKey)
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+
+if (!supabaseUrl || !supabaseKey) {
+  throw new Error('Les variables d\'environnement Supabase ne sont pas définies')
+}
+
+const supabase = createClient(supabaseUrl, supabaseKey)
 
 async function initDatabase() {
   try {

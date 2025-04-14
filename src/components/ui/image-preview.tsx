@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { supabase } from '@/lib/supabase'
+import { supabase, supabaseUrl } from '@/lib/supabase'
 import { Photo } from '@/types'
 import Image from 'next/image'
 
@@ -37,13 +37,25 @@ export function ImagePreview({ photo, onClose, onRename }: ImagePreviewProps) {
     }
   }
 
-  const handleDownload = () => {
-    const link = document.createElement('a')
-    link.href = `data:${photo.mime_type};base64,${photo.image_data}`
-    link.download = photo.name
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
+  const handleDownload = async () => {
+    try {
+      const { data, error } = await supabase.storage
+        .from('photos')
+        .download(photo.url)
+
+      if (error) throw error
+
+      const url = window.URL.createObjectURL(data)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = photo.name
+      document.body.appendChild(a)
+      a.click()
+      window.URL.revokeObjectURL(url)
+      document.body.removeChild(a)
+    } catch (error) {
+      console.error('Erreur lors du téléchargement:', error)
+    }
   }
 
   return (
@@ -131,7 +143,7 @@ export function ImagePreview({ photo, onClose, onRename }: ImagePreviewProps) {
         </div>
         <div className="p-4">
           <Image
-            src={photo.url}
+            src={`${supabaseUrl}/storage/v1/object/public/photos/${photo.url}`}
             alt={photo.name}
             width={800}
             height={600}

@@ -40,6 +40,10 @@ export default function DashboardPage() {
   const [newFolderName, setNewFolderName] = useState('')
   const [renamingFolderId, setRenamingFolderId] = useState<string | null>(null)
   const [renamingFolderName, setRenamingFolderName] = useState('')
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
+  const [isCreating, setIsCreating] = useState(false)
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false)
+  const [folderToDelete, setFolderToDelete] = useState<Folder | null>(null)
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -96,36 +100,43 @@ export default function DashboardPage() {
     }
   }
 
-  const createNewFolder = async () => {
-    const { data: { session } } = await supabase.auth.getSession()
-    if (!session) return
+  const handleCreateFolder = async () => {
+    if (!newFolderName.trim()) return
 
-    const folderName = prompt('Nom du nouveau dossier:')
-    if (!folderName) return
-
+    setIsCreating(true)
     try {
-      const { data, error } = await supabase
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) return
+
+      const { data: folderData, error: insertError } = await supabase
         .from('folders')
-        .insert([
-          {
-            name: folderName,
-            user_id: session.user.id
-          }
-        ])
+        .insert({
+          name: newFolderName.trim(),
+          user_id: session.user.id
+        })
         .select()
         .single()
 
-      if (error) throw error
+      if (insertError) throw insertError
 
-      setFolders(prev => [{
-        ...data,
-        photoCount: 0,
-        lastModified: new Date(data.created_at).toLocaleDateString(),
-        photos: []
-      }, ...prev])
-    } catch (error: any) {
-      console.error('Erreur lors de la création du dossier:', error)
+      if (folderData) {
+        setFolders(prev => [{
+          id: folderData.id,
+          name: folderData.name,
+          photos: [],
+          photoCount: 0,
+          lastModified: new Date(folderData.created_at).toLocaleDateString(),
+          created_at: folderData.created_at,
+          updated_at: folderData.updated_at
+        }, ...prev])
+        setIsCreateModalOpen(false)
+        setNewFolderName('')
+      }
+    } catch (err) {
+      console.error('Erreur lors de la création du dossier:', err)
       setError('Erreur lors de la création du dossier')
+    } finally {
+      setIsCreating(false)
     }
   }
 
@@ -342,14 +353,44 @@ export default function DashboardPage() {
     }
   }
 
+  const handleDeleteFolder = async () => {
+    if (!folderToDelete) return
+
+    try {
+      // Supprimer d'abord toutes les photos du dossier
+      const { error: photosError } = await supabase
+        .from('photos')
+        .delete()
+        .eq('folder_id', folderToDelete.id)
+
+      if (photosError) throw photosError
+
+      // Puis supprimer le dossier
+      const { error: folderError } = await supabase
+        .from('folders')
+        .delete()
+        .eq('id', folderToDelete.id)
+
+      if (folderError) throw folderError
+
+      // Mettre à jour l'état local
+      setFolders(prev => prev.filter(folder => folder.id !== folderToDelete.id))
+      setIsDeleteModalOpen(false)
+      setFolderToDelete(null)
+    } catch (err) {
+      console.error('Erreur lors de la suppression du dossier:', err)
+      setError('Erreur lors de la suppression du dossier')
+    }
+  }
+
   return (
     <div className="min-h-screen bg-gray-50">
       <Navbar />
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="mb-8 flex justify-between items-center">
-          <h1 className="text-3xl font-bold text-gray-900">Mes dossiers</h1>
+        <div className="flex justify-between items-center mb-8">
+          <h1 className="text-3xl font-bold text-gray-900">Mes Dossiers</h1>
           <button
-            onClick={createNewFolder}
+            onClick={() => setIsCreateModalOpen(true)}
             className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-[#50AFC9] hover:bg-[#3F8BA1] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#50AFC9]"
           >
             <svg
@@ -367,6 +408,67 @@ export default function DashboardPage() {
             Nouveau dossier
           </button>
         </div>
+
+        {/* Modal de création de dossier */}
+        {isCreateModalOpen && (
+          <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+              <h3 className="text-lg font-medium text-gray-900 mb-4">
+                Créer un nouveau dossier
+              </h3>
+              <div className="mb-4">
+                <label htmlFor="folder-name" className="block text-sm font-medium text-gray-700 mb-1">
+                  Nom du dossier
+                </label>
+                <input
+                  type="text"
+                  id="folder-name"
+                  value={newFolderName}
+                  onChange={(e) => setNewFolderName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      handleCreateFolder()
+                    } else if (e.key === 'Escape') {
+                      setIsCreateModalOpen(false)
+                      setNewFolderName('')
+                    }
+                  }}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#50AFC9] focus:border-transparent"
+                  placeholder="Entrez le nom du dossier"
+                  autoFocus
+                />
+              </div>
+              <div className="flex justify-end space-x-4">
+                <button
+                  onClick={() => {
+                    setIsCreateModalOpen(false)
+                    setNewFolderName('')
+                  }}
+                  className="px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-500"
+                >
+                  Annuler
+                </button>
+                <button
+                  onClick={handleCreateFolder}
+                  disabled={!newFolderName.trim() || isCreating}
+                  className="px-4 py-2 bg-[#50AFC9] text-white rounded-md hover:bg-[#3F8BA1] focus:outline-none focus:ring-2 focus:ring-[#50AFC9] disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isCreating ? (
+                    <div className="flex items-center">
+                      <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                      Création...
+                    </div>
+                  ) : (
+                    'Créer'
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {isLoading ? (
           <div className="text-center py-8">
@@ -472,28 +574,54 @@ export default function DashboardPage() {
                         <h2 className="text-lg font-medium text-gray-900">
                           {folder.name}
                         </h2>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            setRenamingFolderId(folder.id)
-                            setRenamingFolderName(folder.name)
-                          }}
-                          className="text-gray-500 hover:text-gray-700"
-                        >
-                          <svg
-                            className="h-5 w-5"
-                            fill="none"
-                            stroke="currentColor"
-                            viewBox="0 0 24 24"
+                        <div className="flex space-x-2">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setRenamingFolderId(folder.id)
+                              setRenamingFolderName(folder.name)
+                            }}
+                            className="text-gray-500 hover:text-gray-700"
+                            title="Renommer"
                           >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              strokeWidth={2}
-                              d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
-                            />
-                          </svg>
-                        </button>
+                            <svg
+                              className="h-5 w-5"
+                              fill="none"
+                              stroke="currentColor"
+                              viewBox="0 0 24 24"
+                            >
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth={2}
+                                d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
+                              />
+                            </svg>
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setFolderToDelete(folder)
+                              setIsDeleteModalOpen(true)
+                            }}
+                            className="text-red-500 hover:text-red-700"
+                            title="Supprimer"
+                          >
+                            <svg
+                              className="h-5 w-5"
+                              fill="none"
+                              stroke="currentColor"
+                              viewBox="0 0 24 24"
+                            >
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth={2}
+                                d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                              />
+                            </svg>
+                          </button>
+                        </div>
                       </div>
                     )}
                     <span className="text-sm text-gray-500 bg-gray-100 px-2 py-1 rounded-full">
@@ -529,6 +657,38 @@ export default function DashboardPage() {
                 </div>
               </div>
             ))}
+          </div>
+        )}
+
+        {/* Modal de confirmation de suppression */}
+        {isDeleteModalOpen && folderToDelete && (
+          <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+              <h3 className="text-lg font-medium text-gray-900 mb-4">
+                Confirmer la suppression
+              </h3>
+              <p className="text-gray-500 mb-6">
+                Êtes-vous sûr de vouloir supprimer le dossier "{folderToDelete.name}" ? 
+                Cette action supprimera également toutes les photos contenues dans le dossier et est irréversible.
+              </p>
+              <div className="flex justify-end space-x-4">
+                <button
+                  onClick={() => {
+                    setIsDeleteModalOpen(false)
+                    setFolderToDelete(null)
+                  }}
+                  className="px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-500"
+                >
+                  Annuler
+                </button>
+                <button
+                  onClick={handleDeleteFolder}
+                  className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500"
+                >
+                  Supprimer
+                </button>
+              </div>
+            </div>
           </div>
         )}
       </div>

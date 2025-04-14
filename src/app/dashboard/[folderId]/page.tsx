@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import Navbar from '@/components/Navbar'
 import { PhotoPreview } from '@/components/ui/photo-preview'
@@ -8,6 +8,7 @@ import { ImagePreview } from '@/components/ui/image-preview'
 import { supabase } from '@/lib/supabase'
 import { Photo } from '@/types'
 import { PhotoPreviewProps } from '@/types/photo-preview'
+import Image from 'next/image'
 
 interface Folder {
   id: string
@@ -27,6 +28,13 @@ export default function FolderPage({ params }: { params: { folderId: string } })
   const [selectedPhoto, setSelectedPhoto] = useState<Photo | null>(null)
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false)
   const [photoToDelete, setPhotoToDelete] = useState<string | null>(null)
+  const [uploadProgress, setUploadProgress] = useState<{ [key: string]: number }>({})
+  const [uploadingFiles, setUploadingFiles] = useState<string[]>([])
+  const [currentPage, setCurrentPage] = useState(1)
+  const photosPerPage = 12
+  const [isLoadingMore, setIsLoadingMore] = useState(false)
+  const [isSelectionMode, setIsSelectionMode] = useState(false)
+  const [editingPhoto, setEditingPhoto] = useState<{ id: string; name: string } | null>(null)
 
   useEffect(() => {
     const fetchFolder = async () => {
@@ -90,12 +98,72 @@ export default function FolderPage({ params }: { params: { folderId: string } })
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
       const files = Array.from(e.target.files)
-      await handleFileUpload(files[0])
+      for (const file of files) {
+        await handleFileUpload(file)
+      }
     }
+  }
+
+  const compressImage = async (file: File): Promise<File> => {
+    return new Promise<File>((resolve, reject) => {
+      const reader = new FileReader()
+      reader.readAsDataURL(file)
+      reader.onload = (event) => {
+        const img = document.createElement('img')
+        img.src = event.target?.result as string
+        img.onload = () => {
+          const canvas = document.createElement('canvas')
+          let width = img.naturalWidth
+          let height = img.naturalHeight
+
+          // Calculer les nouvelles dimensions pour ne pas dépasser 1920px
+          const MAX_SIZE = 1920
+          if (width > height && width > MAX_SIZE) {
+            height = Math.round((height * MAX_SIZE) / width)
+            width = MAX_SIZE
+          } else if (height > MAX_SIZE) {
+            width = Math.round((width * MAX_SIZE) / height)
+            height = MAX_SIZE
+          }
+
+          canvas.width = width
+          canvas.height = height
+          const ctx = canvas.getContext('2d')
+          if (!ctx) {
+            reject(new Error('Impossible de créer le contexte canvas'))
+            return
+          }
+
+          ctx.drawImage(img, 0, 0, width, height)
+
+          // Convertir en JPEG avec une qualité de 0.7
+          canvas.toBlob(
+            (blob) => {
+              if (!blob) {
+                reject(new Error('Impossible de compresser l\'image'))
+                return
+              }
+              const compressedFile = new File([blob], file.name, {
+                type: 'image/jpeg',
+                lastModified: Date.now(),
+              })
+              resolve(compressedFile)
+            },
+            'image/jpeg',
+            0.7
+          )
+        }
+        img.onerror = () => reject(new Error('Erreur lors du chargement de l\'image'))
+      }
+      reader.onerror = () => reject(new Error('Erreur lors de la lecture du fichier'))
+    })
   }
 
   const handleFileUpload = async (file: File) => {
     try {
+      setUploadingFiles(prev => [...prev, file.name])
+      setUploadProgress(prev => ({ ...prev, [file.name]: 0 }))
+
       const session = await supabase.auth.getSession()
       const userId = session.data.session?.user.id
 
@@ -103,82 +171,106 @@ export default function FolderPage({ params }: { params: { folderId: string } })
         throw new Error('Utilisateur non connecté')
       }
 
-      // Vérifier le type de fichier
       if (!file.type.startsWith('image/')) {
         throw new Error('Seuls les fichiers image sont acceptés')
       }
 
-      // Vérifier la taille du fichier (max 5MB)
-      if (file.size > 5 * 1024 * 1024) {
+      // Compression de l'image
+      const compressedFile = await compressImage(file)
+      
+      if (compressedFile.size > 5 * 1024 * 1024) {
         throw new Error('La taille maximale du fichier est de 5MB')
       }
 
-      // Convertir le fichier en base64
       const reader = new FileReader()
-      reader.readAsDataURL(file)
+      reader.readAsDataURL(compressedFile)
       reader.onload = async () => {
         const base64Data = reader.result as string
         const base64Content = base64Data.split(',')[1]
 
-        // Insérer la photo dans la base de données
         const { data: photoData, error: insertError } = await supabase
           .from('photos')
           .insert({
             name: file.name,
-            mime_type: file.type,
+            mime_type: 'image/jpeg',
             image_data: base64Content,
             folder_id: params.folderId,
             user_id: userId,
-            size: file.size
+            size: compressedFile.size
           })
           .select()
           .single()
 
         if (insertError) throw insertError
 
-        // Mettre à jour l'état des photos immédiatement
-        if (photoData && folder) {
-          setFolder({
-            ...folder,
-            photos: [...folder.photos, {
-              id: photoData.id,
-              name: photoData.name,
-              mime_type: photoData.mime_type,
-              image_data: photoData.image_data,
-              created_at: photoData.created_at,
-              size: photoData.size,
-              url: `data:${photoData.mime_type};base64,${photoData.image_data}`,
-              folder_id: photoData.folder_id,
-              user_id: photoData.user_id
-            }]
+        if (photoData) {
+          // Création de l'objet photo optimisé
+          const newPhoto = {
+            id: photoData.id,
+            name: photoData.name,
+            mime_type: photoData.mime_type,
+            image_data: photoData.image_data,
+            created_at: photoData.created_at,
+            size: photoData.size,
+            url: `data:${photoData.mime_type};base64,${photoData.image_data}`,
+            folder_id: photoData.folder_id,
+            user_id: photoData.user_id
+          }
+
+          // Mise à jour optimisée de l'état
+          setFolder(prev => {
+            if (!prev) return null
+            return {
+              ...prev,
+              photos: [newPhoto, ...prev.photos] // Ajout au début pour une meilleure performance
+            }
           })
+
+          setUploadProgress(prev => ({ ...prev, [file.name]: 100 }))
+          setUploadingFiles(prev => prev.filter(name => name !== file.name))
         }
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erreur lors de l\'ajout de la photo')
       console.error(err)
+      setUploadingFiles(prev => prev.filter(name => name !== file.name))
+    }
+  }
+
+  const handleSelectionModeToggle = () => {
+    setIsSelectionMode(!isSelectionMode)
+    if (!isSelectionMode) {
+      setSelectedPhotos([])
     }
   }
 
   const handlePhotoClick = (photo: Photo, event: React.MouseEvent) => {
-    // Si on est en mode sélection, on ne prévisualise pas
-    if (selectedPhotos.length > 0) {
+    event.stopPropagation()
+    
+    if (isSelectionMode) {
       handlePhotoSelect(photo.id)
       return
     }
-    // S'assurer que nous avons un objet Photo complet
-    const completePhoto: Photo = {
-      id: photo.id,
-      name: photo.name,
-      url: photo.url,
-      folder_id: photo.folder_id,
-      created_at: photo.created_at,
-      user_id: photo.user_id,
-      mime_type: photo.mime_type,
-      image_data: photo.image_data,
-      size: photo.size
+    
+    setSelectedPhoto(photo)
+  }
+
+  const handleDownloadPhoto = async (photo: Photo) => {
+    try {
+      const response = await fetch(photo.url)
+      const blob = await response.blob()
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = photo.name
+      document.body.appendChild(a)
+      a.click()
+      window.URL.revokeObjectURL(url)
+      document.body.removeChild(a)
+    } catch (error) {
+      console.error('Erreur lors du téléchargement:', error)
+      setError('Erreur lors du téléchargement de la photo')
     }
-    setSelectedPhoto(completePhoto)
   }
 
   const handleDeleteClick = (photoId: string) => {
@@ -269,16 +361,49 @@ export default function FolderPage({ params }: { params: { folderId: string } })
     setSelectedPhoto(null)
   }
 
-  const handleRenamePhoto = (newName: string) => {
-    if (selectedPhoto && folder) {
-      setFolder({
-        ...folder,
-        photos: folder.photos.map((photo) =>
-          photo.id === selectedPhoto.id ? { ...photo, name: newName } : photo
-        ),
+  const handleRenamePhoto = async (photoId: string, newName: string) => {
+    try {
+      const { error } = await supabase
+        .from('photos')
+        .update({ name: newName })
+        .eq('id', photoId)
+
+      if (error) throw error
+
+      setFolder((prev) => {
+        if (!prev) return null
+        return {
+          ...prev,
+          photos: prev.photos.map((photo) =>
+            photo.id === photoId ? { ...photo, name: newName } : photo
+          ),
+        }
       })
+      setEditingPhoto(null)
+    } catch (error) {
+      console.error('Erreur lors du renommage:', error)
+      setError('Erreur lors du renommage de la photo')
     }
   }
+
+  const handleScroll = useCallback(() => {
+    if (
+      window.innerHeight + document.documentElement.scrollTop >=
+      document.documentElement.scrollHeight - 100 &&
+      !isLoadingMore &&
+      folder?.photos.length &&
+      currentPage * photosPerPage < folder.photos.length
+    ) {
+      setIsLoadingMore(true)
+      setCurrentPage((prev) => prev + 1)
+      setIsLoadingMore(false)
+    }
+  }, [currentPage, isLoadingMore, folder?.photos.length])
+
+  useEffect(() => {
+    window.addEventListener('scroll', handleScroll)
+    return () => window.removeEventListener('scroll', handleScroll)
+  }, [handleScroll])
 
   if (isLoading) {
     return (
@@ -448,8 +573,10 @@ export default function FolderPage({ params }: { params: { folderId: string } })
               </>
             ) : (
               <button
-                onClick={() => setSelectedPhotos([])}
-                className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-[#50AFC9] hover:bg-[#3F8BA1] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#50AFC9]"
+                onClick={handleSelectionModeToggle}
+                className={`inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white ${
+                  isSelectionMode ? 'bg-[#50AFC9] hover:bg-[#3F8BA1]' : 'bg-gray-600 hover:bg-gray-700'
+                } focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#50AFC9]`}
               >
                 <svg
                   className="-ml-1 mr-2 h-5 w-5"
@@ -463,7 +590,7 @@ export default function FolderPage({ params }: { params: { folderId: string } })
                     clipRule="evenodd"
                   />
                 </svg>
-                Sélectionner
+                {isSelectionMode ? 'Annuler la sélection' : 'Sélectionner'}
               </button>
             )}
             <span className="text-sm text-gray-500 bg-gray-100 px-3 py-1 rounded-full">
@@ -490,6 +617,7 @@ export default function FolderPage({ params }: { params: { folderId: string } })
               onChange={handleFileSelect}
               className="hidden"
               id="file-upload"
+              multiple
             />
             <label
               htmlFor="file-upload"
@@ -529,40 +657,189 @@ export default function FolderPage({ params }: { params: { folderId: string } })
         {folder.photos.length > 0 ? (
           <div className="mt-8">
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 p-4">
-              {folder.photos.map((photo) => (
-                <div
-                  key={photo.id}
-                  className={`relative group rounded-lg overflow-hidden bg-white shadow-sm hover:shadow-md transition-shadow ${
-                    selectedPhotos.includes(photo.id) ? 'ring-2 ring-[#50AFC9]' : ''
-                  }`}
-                  onClick={(e) => handlePhotoClick(photo, e)}
-                >
-                  <PhotoPreview
-                    url={`data:${photo.mime_type};base64,${photo.image_data}`}
-                    name={photo.name}
-                    created_at={photo.created_at}
-                    onDelete={() => handleDeleteClick(photo.id)}
-                  />
-                  {selectedPhotos.includes(photo.id) && (
-                    <div className="absolute top-2 right-2 bg-[#50AFC9] text-white rounded-full p-1">
-                      <svg
-                        className="h-4 w-4"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M5 13l4 4L19 7"
-                        />
-                      </svg>
+              {folder.photos
+                .slice(0, currentPage * photosPerPage)
+                .map((photo) => (
+                  <div
+                    key={photo.id}
+                    className={`relative group rounded-lg overflow-hidden bg-white shadow-sm hover:shadow-md transition-shadow cursor-pointer ${
+                      selectedPhotos.includes(photo.id) ? 'ring-2 ring-[#50AFC9]' : ''
+                    }`}
+                    onClick={(e) => handlePhotoClick(photo, e)}
+                  >
+                    <div className="relative aspect-square">
+                      <Image
+                        src={photo.url}
+                        alt={photo.name}
+                        fill
+                        sizes="(max-width: 640px) 100vw, (max-width: 768px) 50vw, (max-width: 1024px) 33vw, 25vw"
+                        className="object-cover"
+                        loading="lazy"
+                        quality={75}
+                      />
+                      <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-20 transition-opacity duration-300 flex items-center justify-center opacity-0 group-hover:opacity-100">
+                        <div className="flex space-x-2">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              handleDownloadPhoto(photo)
+                            }}
+                            className="bg-white p-2 rounded-full hover:bg-gray-100 transition-colors"
+                            title="Télécharger"
+                          >
+                            <svg
+                              className="w-5 h-5 text-gray-700"
+                              fill="none"
+                              stroke="currentColor"
+                              viewBox="0 0 24 24"
+                            >
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth={2}
+                                d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
+                              />
+                            </svg>
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setEditingPhoto({ id: photo.id, name: photo.name })
+                            }}
+                            className="bg-white p-2 rounded-full hover:bg-gray-100 transition-colors"
+                            title="Renommer"
+                          >
+                            <svg
+                              className="w-5 h-5 text-gray-700"
+                              fill="none"
+                              stroke="currentColor"
+                              viewBox="0 0 24 24"
+                            >
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth={2}
+                                d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
+                              />
+                            </svg>
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              handleDeleteClick(photo.id)
+                            }}
+                            className="bg-white p-2 rounded-full hover:bg-gray-100 transition-colors"
+                            title="Supprimer"
+                          >
+                            <svg
+                              className="w-5 h-5 text-red-500"
+                              fill="none"
+                              stroke="currentColor"
+                              viewBox="0 0 24 24"
+                            >
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth={2}
+                                d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                              />
+                            </svg>
+                          </button>
+                        </div>
+                      </div>
                     </div>
-                  )}
-                </div>
-              ))}
+                    <div className="p-2">
+                      {editingPhoto?.id === photo.id ? (
+                        <div className="flex items-center space-x-2">
+                          <input
+                            type="text"
+                            value={editingPhoto.name}
+                            onChange={(e) => setEditingPhoto({ ...editingPhoto, name: e.target.value })}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                handleRenamePhoto(photo.id, editingPhoto.name)
+                              } else if (e.key === 'Escape') {
+                                setEditingPhoto(null)
+                              }
+                            }}
+                            className="flex-1 px-2 py-1 text-sm border border-gray-300 rounded bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#50AFC9] focus:border-transparent"
+                            autoFocus
+                          />
+                          <button
+                            onClick={() => handleRenamePhoto(photo.id, editingPhoto.name)}
+                            className="text-green-600 hover:text-green-700"
+                          >
+                            <svg
+                              className="w-5 h-5"
+                              fill="none"
+                              stroke="currentColor"
+                              viewBox="0 0 24 24"
+                            >
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth={2}
+                                d="M5 13l4 4L19 7"
+                              />
+                            </svg>
+                          </button>
+                          <button
+                            onClick={() => setEditingPhoto(null)}
+                            className="text-red-600 hover:text-red-700"
+                          >
+                            <svg
+                              className="w-5 h-5"
+                              fill="none"
+                              stroke="currentColor"
+                              viewBox="0 0 24 24"
+                            >
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth={2}
+                                d="M6 18L18 6M6 6l12 12"
+                              />
+                            </svg>
+                          </button>
+                        </div>
+                      ) : (
+                        <>
+                          <h3 className="text-sm font-medium text-gray-900 truncate">{photo.name}</h3>
+                          <p className="text-xs text-gray-500">
+                            Ajoutée le {new Date(photo.created_at).toLocaleDateString('fr-FR', {
+                              year: 'numeric',
+                              month: 'long',
+                              day: 'numeric'
+                            })}
+                          </p>
+                        </>
+                      )}
+                    </div>
+                    {selectedPhotos.includes(photo.id) && (
+                      <div className="absolute top-2 right-2 bg-[#50AFC9] text-white rounded-full p-1">
+                        <svg
+                          className="h-4 w-4"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M5 13l4 4L19 7"
+                          />
+                        </svg>
+                      </div>
+                    )}
+                  </div>
+                ))}
             </div>
+            {isLoadingMore && (
+              <div className="text-center py-4">
+                <div className="inline-block animate-spin rounded-full h-8 w-8 border-4 border-[#50AFC9] border-t-transparent"></div>
+              </div>
+            )}
           </div>
         ) : (
           <div className="mt-8 text-center py-12 bg-gray-50 rounded-lg">
@@ -588,12 +865,170 @@ export default function FolderPage({ params }: { params: { folderId: string } })
           </div>
         )}
 
-        {selectedPhoto && (
-          <ImagePreview
-            photo={selectedPhoto}
-            onClose={handleClosePreview}
-            onRename={handleRenamePhoto}
-          />
+        {selectedPhoto && !isSelectionMode && (
+          <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
+            <div className="relative w-full max-w-4xl bg-white rounded-lg overflow-hidden">
+              <button
+                onClick={() => setSelectedPhoto(null)}
+                className="absolute top-4 right-4 z-10 p-2 rounded-full bg-black/50 text-white hover:bg-black/70 transition-colors"
+                aria-label="Fermer"
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="24"
+                  height="24"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M18 6 6 18" />
+                  <path d="m6 6 12 12" />
+                </svg>
+              </button>
+
+              <div className="relative aspect-video w-full">
+                <Image
+                  src={selectedPhoto.url}
+                  alt={selectedPhoto.name}
+                  fill
+                  className="object-contain"
+                  priority
+                />
+              </div>
+
+              <div className="p-4 bg-white">
+                <div className="flex items-center justify-between">
+                  {editingPhoto?.id === selectedPhoto.id ? (
+                    <div className="flex items-center space-x-2 flex-1">
+                      <input
+                        type="text"
+                        value={editingPhoto.name}
+                        onChange={(e) => setEditingPhoto({ ...editingPhoto, name: e.target.value })}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            handleRenamePhoto(selectedPhoto.id, editingPhoto.name)
+                          } else if (e.key === 'Escape') {
+                            setEditingPhoto(null)
+                          }
+                        }}
+                        className="flex-1 px-3 py-2 text-lg border border-gray-300 rounded bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#50AFC9] focus:border-transparent"
+                        autoFocus
+                      />
+                      <button
+                        onClick={() => handleRenamePhoto(selectedPhoto.id, editingPhoto.name)}
+                        className="text-green-600 hover:text-green-700"
+                      >
+                        <svg
+                          className="w-5 h-5"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M5 13l4 4L19 7"
+                          />
+                        </svg>
+                      </button>
+                      <button
+                        onClick={() => setEditingPhoto(null)}
+                        className="text-red-600 hover:text-red-700"
+                      >
+                        <svg
+                          className="w-5 h-5"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M6 18L18 6M6 6l12 12"
+                          />
+                        </svg>
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      <h3 className="text-lg font-medium text-gray-900">{selectedPhoto.name}</h3>
+                      <div className="flex space-x-2">
+                        <button
+                          onClick={() => setEditingPhoto({ id: selectedPhoto.id, name: selectedPhoto.name })}
+                          className="p-2 text-gray-500 hover:text-gray-700"
+                          title="Renommer"
+                        >
+                          <svg
+                            className="w-5 h-5"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={2}
+                              d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
+                            />
+                          </svg>
+                        </button>
+                        <button
+                          onClick={() => handleDownloadPhoto(selectedPhoto)}
+                          className="p-2 text-gray-500 hover:text-gray-700"
+                          title="Télécharger"
+                        >
+                          <svg
+                            className="w-5 h-5"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={2}
+                              d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
+                            />
+                          </svg>
+                        </button>
+                        <button
+                          onClick={() => handleDeleteClick(selectedPhoto.id)}
+                          className="p-2 text-red-500 hover:text-red-700"
+                          title="Supprimer"
+                        >
+                          <svg
+                            className="w-5 h-5"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={2}
+                              d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                            />
+                          </svg>
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
+                <p className="text-sm text-gray-500 mt-1">
+                  Ajoutée le {new Date(selectedPhoto.created_at).toLocaleDateString('fr-FR', {
+                    year: 'numeric',
+                    month: 'long',
+                    day: 'numeric'
+                  })}
+                </p>
+              </div>
+            </div>
+          </div>
         )}
 
         {/* Modal de confirmation de suppression */}
@@ -624,6 +1059,29 @@ export default function FolderPage({ params }: { params: { folderId: string } })
                 </button>
               </div>
             </div>
+          </div>
+        )}
+
+        {uploadingFiles.length > 0 && (
+          <div className="mt-4 space-y-2">
+            {uploadingFiles.map((fileName) => (
+              <div key={fileName} className="bg-white rounded-lg shadow p-4">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-medium text-gray-900 truncate">
+                    {fileName}
+                  </span>
+                  <span className="text-sm text-gray-500">
+                    {uploadProgress[fileName]}%
+                  </span>
+                </div>
+                <div className="w-full bg-gray-200 rounded-full h-2">
+                  <div
+                    className="bg-[#50AFC9] h-2 rounded-full transition-all duration-300"
+                    style={{ width: `${uploadProgress[fileName]}%` }}
+                  />
+                </div>
+              </div>
+            ))}
           </div>
         )}
       </div>

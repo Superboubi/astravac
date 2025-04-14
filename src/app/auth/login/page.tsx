@@ -6,7 +6,6 @@ import { supabase } from '@/lib/supabase'
 import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
 import { Suspense } from 'react'
-import config from '@/lib/config'
 import { signIn } from 'next-auth/react'
 
 function LoginForm() {
@@ -37,8 +36,8 @@ function LoginForm() {
 
     try {
       console.log('Tentative de connexion...')
-      console.log('URL Supabase:', config.supabase.url)
-      console.log('Clé API:', config.supabase.anonKey.substring(0, 10) + '...')
+      console.log('URL Supabase:', process.env.NEXT_PUBLIC_SUPABASE_URL)
+      console.log('Clé API:', process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.substring(0, 10) + '...')
 
       // Vérifier la connexion à Supabase
       const { data: { session: currentSession } } = await supabase.auth.getSession()
@@ -190,7 +189,7 @@ function LoginForm() {
                   type="email"
                   autoComplete="email"
                   required
-                  className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                  className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm text-gray-900"
                 />
               </div>
             </div>
@@ -206,7 +205,7 @@ function LoginForm() {
                   type="password"
                   autoComplete="current-password"
                   required
-                  className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                  className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm text-gray-900"
                 />
               </div>
             </div>

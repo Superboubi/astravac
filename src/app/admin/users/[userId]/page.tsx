@@ -1,7 +1,7 @@
 'use client'
 
 import { useRouter } from 'next/navigation'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { AdminNavbar } from '@/components/ui/admin-navbar'
 import { supabase } from '@/lib/supabase'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -53,26 +53,24 @@ export default function UserDetailsPage({ params }: { params: { userId: string }
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set())
   const [isExpanded, setIsExpanded] = useState<string | null>(null)
 
-  const fetchUserDetails = async () => {
+  const fetchUserDetails = useCallback(async () => {
     try {
-      const { data: userData, error } = await supabase
+      const { data, error } = await supabase
         .from('users')
         .select('*')
         .eq('id', params.userId)
         .single()
 
       if (error) throw error
-      setUser(userData)
+      setUser(data)
     } catch (error) {
-      console.error('Erreur lors de la récupération des détails de l\'utilisateur:', error)
+      console.error('Erreur lors de la récupération des détails:', error)
     }
-  }
+  }, [params.userId])
 
   useEffect(() => {
-    if (params.userId) {
-      fetchUserDetails()
-    }
-  }, [params.userId, fetchUserDetails])
+    fetchUserDetails()
+  }, [fetchUserDetails])
 
   useEffect(() => {
     const checkAuth = async () => {

@@ -1,118 +1,107 @@
-import { useState, useEffect } from 'react'
+'use client'
+
+import { useState } from 'react'
 import Image from 'next/image'
+import { format, parseISO } from 'date-fns'
+import { fr } from 'date-fns/locale'
+import { Photo } from '@/lib/supabase'
 
 interface PhotoPreviewProps {
-  url: string
-  name: string
-  created_at: string
-  onDelete: () => void
+  photo: Photo
+  onClose: () => void
 }
 
-export function PhotoPreview({ url, name, created_at, onDelete }: PhotoPreviewProps) {
-  const [isOpen, setIsOpen] = useState(false)
+export function PhotoPreview({ photo, onClose }: PhotoPreviewProps) {
   const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
-  const handleImageLoad = () => {
+  const handleImageError = () => {
+    setError('Impossible de charger l\'image')
     setIsLoading(false)
   }
 
-  // Nettoyer l'URL si elle contient déjà le préfixe data:image
-  const cleanUrl = url.startsWith('data:image') ? url : `data:image/png;base64,${url}`
+  const handleImageLoad = () => {
+    setIsLoading(false)
+    setError(null)
+  }
+
+  const formatDate = (dateString: string) => {
+    console.log('Date reçue:', dateString) // Log pour déboguer
+    if (!dateString) return 'Date inconnue'
+    
+    try {
+      // Vérifier si la date est déjà un timestamp
+      if (!isNaN(Date.parse(dateString))) {
+        return format(new Date(dateString), 'PPP', { locale: fr })
+      }
+      
+      // Essayer de parser la date ISO
+      const parsedDate = parseISO(dateString)
+      if (isNaN(parsedDate.getTime())) {
+        throw new Error('Date invalide')
+      }
+      return format(parsedDate, 'PPP', { locale: fr })
+    } catch (error) {
+      console.error('Erreur de formatage de la date:', error)
+      return 'Date inconnue'
+    }
+  }
 
   return (
-    <>
-      <div className="relative group">
-        <div className="aspect-w-16 aspect-h-9 bg-gray-100 rounded-lg overflow-hidden">
+    <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
+      <div className="relative w-full max-w-4xl bg-white rounded-lg overflow-hidden">
+        <button
+          onClick={onClose}
+          className="absolute top-4 right-4 z-10 p-2 rounded-full bg-black/50 text-white hover:bg-black/70 transition-colors"
+          aria-label="Fermer"
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="24"
+            height="24"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M18 6 6 18" />
+            <path d="m6 6 12 12" />
+          </svg>
+        </button>
+
+        <div className="relative aspect-video w-full">
           {isLoading && (
-            <div className="absolute inset-0 flex items-center justify-center">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
+            <div className="absolute inset-0 flex items-center justify-center bg-gray-100">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900" />
             </div>
           )}
-          <Image
-            src={url}
-            alt={name}
-            width={300}
-            height={200}
-            className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
-            onClick={() => setIsOpen(true)}
-            onLoad={handleImageLoad}
-          />
+          
+          {error ? (
+            <div className="absolute inset-0 flex items-center justify-center bg-gray-100">
+              <p className="text-red-500">{error}</p>
+            </div>
+          ) : (
+            <Image
+              src={photo.url}
+              alt={photo.name}
+              fill
+              className="object-contain"
+              onError={handleImageError}
+              onLoad={handleImageLoad}
+              priority
+            />
+          )}
         </div>
-        <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-20 transition-opacity duration-300 flex items-center justify-center opacity-0 group-hover:opacity-100">
-          <button
-            onClick={(e) => {
-              e.stopPropagation()
-              onDelete()
-            }}
-            className="bg-red-500 text-white p-2 rounded-full hover:bg-red-600 transition-colors"
-            title="Supprimer la photo"
-          >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              className="h-5 w-5"
-              viewBox="0 0 20 20"
-              fill="currentColor"
-            >
-              <path
-                fillRule="evenodd"
-                d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z"
-                clipRule="evenodd"
-              />
-            </svg>
-          </button>
-        </div>
-        <div className="mt-2">
-          <h3 className="text-sm font-medium text-gray-900 truncate">{name}</h3>
-          <p className="text-xs text-gray-500">
-            Ajoutée le {new Date(created_at).toLocaleDateString()}
+
+        <div className="p-4 bg-white">
+          <h3 className="text-lg font-medium text-gray-900">{photo.name}</h3>
+          <p className="text-sm text-gray-500 mt-1">
+            Ajoutée le {formatDate(photo.created_at)}
           </p>
         </div>
       </div>
-
-      {isOpen && (
-        <div 
-          className="fixed inset-0 bg-black bg-opacity-75 z-50 flex items-center justify-center p-4"
-          onClick={() => setIsOpen(false)}
-        >
-          <div className="relative max-w-4xl w-full">
-            <button
-              onClick={() => setIsOpen(false)}
-              className="absolute -top-12 right-0 text-white hover:text-gray-300 transition-colors"
-            >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                className="h-8 w-8"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M6 18L18 6M6 6l12 12"
-                />
-              </svg>
-            </button>
-            <div className="relative">
-              <Image
-                src={url}
-                alt={name}
-                width={300}
-                height={200}
-                className="w-full h-auto rounded-lg"
-                style={{ maxHeight: '80vh' }}
-              />
-              <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black to-transparent p-4 rounded-b-lg">
-                <h3 className="text-xl font-semibold text-white">{name}</h3>
-                <p className="text-sm text-gray-300">
-                  Ajoutée le {new Date(created_at).toLocaleDateString()}
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-    </>
+    </div>
   )
 } 

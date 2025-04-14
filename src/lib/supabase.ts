@@ -1,5 +1,4 @@
 import { createClient } from '@supabase/supabase-js'
-import config from './config'
 
 // Configuration des en-têtes CORS
 const corsHeaders = {
@@ -8,10 +7,22 @@ const corsHeaders = {
   'Access-Control-Allow-Methods': 'POST, GET, PUT, DELETE, OPTIONS'
 }
 
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+
+if (!supabaseUrl || !supabaseKey) {
+  throw new Error('Les variables d\'environnement Supabase ne sont pas définies')
+}
+
 // Vérifier que l'URL est accessible
 const checkSupabaseUrl = async () => {
   try {
-    const response = await fetch(config.supabase.url)
+    const response = await fetch(`${supabaseUrl}/rest/v1/`, {
+      headers: {
+        'apikey': supabaseKey,
+        ...corsHeaders
+      }
+    })
     if (!response.ok) {
       throw new Error(`Supabase URL inaccessible: ${response.status}`)
     }
@@ -24,35 +35,14 @@ const checkSupabaseUrl = async () => {
 // Exécuter la vérification
 checkSupabaseUrl()
 
-export const supabase = createClient(
-  config.supabase.url,
-  config.supabase.anonKey,
-  {
-    auth: {
-      autoRefreshToken: true,
-      persistSession: true,
-      detectSessionInUrl: true,
-      storageKey: 'supabase.auth.token',
-      storage: typeof window !== 'undefined' ? window.localStorage : undefined,
-      flowType: 'pkce',
-      debug: true
-    },
-    db: {
-      schema: 'public'
-    },
-    global: {
-      headers: {
-        'x-application-name': 'photo-gallery',
-        ...corsHeaders
-      }
-    },
-    realtime: {
-      params: {
-        eventsPerSecond: 10
-      }
-    }
+export { supabaseUrl }
+export const supabase = createClient(supabaseUrl, supabaseKey, {
+  auth: {
+    autoRefreshToken: true,
+    persistSession: true,
+    detectSessionInUrl: true
   }
-)
+})
 
 // Vérifier la connexion
 supabase.auth.onAuthStateChange((event, session) => {
@@ -146,4 +136,16 @@ export type Database = {
       }
     }
   }
+}
+
+export interface Photo {
+  id: string
+  name: string
+  url: string
+  folder_id: string
+  created_at: string
+  user_id: string
+  mime_type: string
+  image_data: string
+  size: number
 } 
