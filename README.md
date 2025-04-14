@@ -1,56 +1,79 @@
-# Application de Gestion de Photos
+# Photo Gallery App
 
-Une application web moderne pour gérer et organiser vos photos.
+Une application web moderne pour la gestion et le partage de photos, construite avec Next.js et Tailwind CSS.
 
 ## Fonctionnalités
 
-- Création et gestion de dossiers
-- Upload de photos par glisser-déposer ou sélection
-- Prévisualisation des photos
-- Mode de sélection pour les actions en masse
-- Téléchargement et suppression de photos
-- Interface utilisateur intuitive et responsive
+- Interface utilisateur moderne et responsive
+- Authentification sécurisée
+- Gestion des dossiers et des photos
+- Dashboard administrateur
+- Interface utilisateur intuitive
+- Design professionnel et esthétique
 
 ## Technologies utilisées
 
-- Next.js
+- Next.js 14
 - TypeScript
 - Tailwind CSS
-- Supabase (base de données et stockage)
+- React Hook Form
+- Zod
+- Heroicons
+- Headless UI
+
+## Prérequis
+
+- Node.js 18.x ou supérieur
+- npm ou yarn
 
 ## Installation
 
 1. Clonez le dépôt :
 ```bash
-git clone [URL_DU_REPO]
+git clone https://github.com/votre-username/photo-gallery-app.git
+cd photo-gallery-app
 ```
 
 2. Installez les dépendances :
 ```bash
 npm install
+# ou
+yarn install
 ```
 
-3. Configurez les variables d'environnement :
-Créez un fichier `.env.local` avec les variables suivantes :
-```
-NEXT_PUBLIC_SUPABASE_URL=votre_url_supabase
-NEXT_PUBLIC_SUPABASE_ANON_KEY=votre_clé_anon_supabase
-```
-
-4. Lancez l'application en mode développement :
+3. Lancez le serveur de développement :
 ```bash
 npm run dev
+# ou
+yarn dev
 ```
 
-## Déploiement
+4. Ouvrez [http://localhost:3000](http://localhost:3000) dans votre navigateur.
 
-L'application peut être déployée sur Vercel :
+## Structure du projet
 
-1. Créez un compte sur [Vercel](https://vercel.com)
-2. Connectez votre dépôt GitHub
-3. Configurez les variables d'environnement
-4. Déployez !
+```
+src/
+├── app/                    # Pages et routes de l'application
+│   ├── admin/             # Pages du dashboard administrateur
+│   ├── auth/              # Pages d'authentification
+│   └── dashboard/         # Pages du dashboard utilisateur
+├── components/            # Composants réutilisables
+│   └── ui/               # Composants UI de base
+└── lib/                  # Utilitaires et configurations
+```
+
+## Scripts disponibles
+
+- `npm run dev` : Lance le serveur de développement
+- `npm run build` : Construit l'application pour la production
+- `npm run start` : Lance l'application en mode production
+- `npm run lint` : Vérifie le code avec ESLint
+
+## Contribution
+
+Les contributions sont les bienvenues ! N'hésitez pas à ouvrir une issue ou à soumettre une pull request.
 
 ## Licence
 
-MIT 
+Ce projet est sous licence MIT. Voir le fichier [LICENSE](LICENSE) pour plus de détails. 

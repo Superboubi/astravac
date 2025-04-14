@@ -1,50 +1,40 @@
-export const dynamic = 'force-dynamic'
-
 'use client'
 
-import { Suspense, useEffect } from 'react'
+import { useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
+import { supabase } from '@/lib/supabase'
 
-function CallbackHandler() {
+export default function AuthCallbackPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const code = searchParams.get('code')
 
   useEffect(() => {
     const handleCallback = async () => {
-      if (code) {
-        const supabase = createClientComponentClient()
-        await supabase.auth.exchangeCodeForSession(code)
+      const { error } = await supabase.auth.getSession()
+      
+      if (error) {
+        console.error('Erreur lors de la confirmation:', error)
+        router.push('/auth/login?error=confirmation_failed')
+        return
       }
-      router.push('/dashboard')
+
+      // Rediriger vers la page de connexion avec un message de succès
+      router.push('/auth/login?registered=true&emailConfirmed=true')
     }
 
     handleCallback()
-  }, [code, router])
+  }, [router])
 
-  return null
-}
-
-function LoadingState() {
-  return (
-    <div className="text-center">
-      <h2 className="text-2xl font-semibold text-gray-900">
-        Connexion en cours...
-      </h2>
-      <p className="mt-2 text-gray-600">
-        Veuillez patienter pendant que nous vous connectons.
-      </p>
-    </div>
-  )
-}
-
-export default function CallbackPage() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50">
-      <Suspense fallback={<LoadingState />}>
-        <CallbackHandler />
-      </Suspense>
+      <div className="text-center">
+        <h2 className="text-2xl font-semibold text-gray-900">
+          Confirmation de votre email en cours...
+        </h2>
+        <p className="mt-2 text-gray-600">
+          Veuillez patienter pendant que nous vérifions votre email.
+        </p>
+      </div>
     </div>
   )
 } 
