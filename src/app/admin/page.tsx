@@ -1,242 +1,184 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
+import Navbar from '@/components/Navbar'
 import {
-  UserIcon,
-  FolderIcon,
-  TrashIcon,
-  PlusIcon,
   PencilIcon,
+  TrashIcon,
 } from '@heroicons/react/24/outline'
+import { supabase } from '@/lib/supabase'
 
 interface User {
   id: string
-  name: string
   email: string
-  role: 'admin' | 'user'
-  folderCount: number
-  lastActive: string
+  role: string
+  created_at: string
 }
 
-interface AdminFolder {
-  id: string
-  name: string
-  owner: string
-  photoCount: number
-  lastModified: string
-}
+export default function AdminPage() {
+  const router = useRouter()
+  const [users, setUsers] = useState<User[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
-const mockUsers: User[] = [
-  {
-    id: '1',
-    name: 'John Doe',
-    email: 'john@example.com',
-    role: 'user',
-    folderCount: 5,
-    lastActive: '2024-03-25',
-  },
-  {
-    id: '2',
-    name: 'Jane Smith',
-    email: 'jane@example.com',
-    role: 'user',
-    folderCount: 3,
-    lastActive: '2024-03-24',
-  },
-]
+  useEffect(() => {
+    const checkAuth = async () => {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) {
+        router.push('/auth/login')
+        return
+      }
 
-const mockFolders: AdminFolder[] = [
-  {
-    id: '1',
-    name: 'Vacances 2024',
-    owner: 'John Doe',
-    photoCount: 24,
-    lastModified: '2024-03-25',
-  },
-  {
-    id: '2',
-    name: 'Famille',
-    owner: 'Jane Smith',
-    photoCount: 156,
-    lastModified: '2024-03-20',
-  },
-]
+      const { data: userData } = await supabase
+        .from('users')
+        .select('role')
+        .eq('id', session.user.id)
+        .single()
 
-export default function AdminDashboardPage() {
-  const [activeTab, setActiveTab] = useState<'users' | 'folders'>('users')
+      if (userData?.role !== 'admin') {
+        router.push('/dashboard')
+        return
+      }
+
+      fetchUsers()
+    }
+
+    checkAuth()
+  }, [router])
+
+  const fetchUsers = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('users')
+        .select('*')
+        .order('created_at', { ascending: false })
+
+      if (error) throw error
+      setUsers(data)
+    } catch (err) {
+      setError('Erreur lors du chargement des utilisateurs')
+      console.error(err)
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const handleUpdateUser = async (userId: string) => {
+    try {
+      const { error } = await supabase
+        .from('users')
+        .update({ role: 'admin' })
+        .eq('id', userId)
+
+      if (error) throw error
+
+      setUsers(users.map(user => 
+        user.id === userId ? { ...user, role: 'admin' } : user
+      ))
+    } catch (err) {
+      setError('Erreur lors de la mise à jour de l\'utilisateur')
+      console.error(err)
+    }
+  }
+
+  const handleDeleteUser = async (userId: string) => {
+    try {
+      const { error } = await supabase
+        .from('users')
+        .delete()
+        .eq('id', userId)
+
+      if (error) throw error
+
+      setUsers(users.filter(user => user.id !== userId))
+    } catch (err) {
+      setError('Erreur lors de la suppression de l\'utilisateur')
+      console.error(err)
+    }
+  }
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gray-50">
+        <Navbar />
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+          <div className="text-center">Chargement...</div>
+        </div>
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen bg-gray-50">
+        <Navbar />
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+          <div className="text-center text-red-600">{error}</div>
+        </div>
+      </div>
+    )
+  }
 
   return (
-    <div className="min-h-screen bg-gray-100">
-      <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-        <div className="py-6">
-          <h1 className="text-3xl font-bold text-gray-900">Dashboard Administrateur</h1>
+    <div className="min-h-screen bg-gray-50">
+      <Navbar />
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="mb-8">
+          <h1 className="text-3xl font-bold text-[#50AFC9]">Administration</h1>
+          <p className="mt-2 text-sm text-gray-600">
+            Gestion des utilisateurs
+          </p>
         </div>
 
-        {/* Onglets */}
-        <div className="mb-6">
-          <div className="border-b border-gray-200">
-            <nav className="-mb-px flex space-x-8">
-              <button
-                onClick={() => setActiveTab('users')}
-                className={`border-b-2 py-4 px-1 text-sm font-medium ${
-                  activeTab === 'users'
-                    ? 'border-blue-500 text-blue-600'
-                    : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
-                }`}
-              >
-                Utilisateurs
-              </button>
-              <button
-                onClick={() => setActiveTab('folders')}
-                className={`border-b-2 py-4 px-1 text-sm font-medium ${
-                  activeTab === 'folders'
-                    ? 'border-blue-500 text-blue-600'
-                    : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
-                }`}
-              >
-                Dossiers
-              </button>
-            </nav>
-          </div>
-        </div>
-
-        {/* Contenu */}
-        <div className="overflow-hidden rounded-lg bg-white shadow">
-          <div className="p-4">
-            <div className="mb-4 flex items-center justify-between">
-              <h2 className="text-lg font-medium text-gray-900">
-                {activeTab === 'users' ? 'Gestion des utilisateurs' : 'Gestion des dossiers'}
-              </h2>
-              <button className="flex items-center rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">
-                <PlusIcon className="mr-2 h-5 w-5" />
-                {activeTab === 'users' ? 'Ajouter un utilisateur' : 'Créer un dossier'}
-              </button>
-            </div>
-
-            {activeTab === 'users' ? (
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200">
-                  <thead>
-                    <tr>
-                      <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
-                        Utilisateur
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
-                        Email
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
-                        Rôle
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
-                        Dossiers
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
-                        Dernière activité
-                      </th>
-                      <th className="px-6 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">
-                        Actions
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-200">
-                    {mockUsers.map((user) => (
-                      <tr key={user.id}>
-                        <td className="whitespace-nowrap px-6 py-4">
-                          <div className="flex items-center">
-                            <UserIcon className="h-5 w-5 text-gray-400" />
-                            <div className="ml-4">
-                              <div className="text-sm font-medium text-gray-900">
-                                {user.name}
-                              </div>
-                            </div>
-                          </div>
-                        </td>
-                        <td className="whitespace-nowrap px-6 py-4">
-                          <div className="text-sm text-gray-900">{user.email}</div>
-                        </td>
-                        <td className="whitespace-nowrap px-6 py-4">
-                          <span className="inline-flex rounded-full bg-green-100 px-2 text-xs font-semibold leading-5 text-green-800">
-                            {user.role}
-                          </span>
-                        </td>
-                        <td className="whitespace-nowrap px-6 py-4 text-sm text-gray-500">
-                          {user.folderCount}
-                        </td>
-                        <td className="whitespace-nowrap px-6 py-4 text-sm text-gray-500">
-                          {user.lastActive}
-                        </td>
-                        <td className="whitespace-nowrap px-6 py-4 text-right text-sm font-medium">
-                          <button className="text-blue-600 hover:text-blue-900">
-                            <PencilIcon className="h-5 w-5" />
-                          </button>
-                          <button className="ml-4 text-red-600 hover:text-red-900">
-                            <TrashIcon className="h-5 w-5" />
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200">
-                  <thead>
-                    <tr>
-                      <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
-                        Dossier
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
-                        Propriétaire
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
-                        Photos
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
-                        Dernière modification
-                      </th>
-                      <th className="px-6 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">
-                        Actions
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-200">
-                    {mockFolders.map((folder) => (
-                      <tr key={folder.id}>
-                        <td className="whitespace-nowrap px-6 py-4">
-                          <div className="flex items-center">
-                            <FolderIcon className="h-5 w-5 text-gray-400" />
-                            <div className="ml-4">
-                              <div className="text-sm font-medium text-gray-900">
-                                {folder.name}
-                              </div>
-                            </div>
-                          </div>
-                        </td>
-                        <td className="whitespace-nowrap px-6 py-4">
-                          <div className="text-sm text-gray-900">{folder.owner}</div>
-                        </td>
-                        <td className="whitespace-nowrap px-6 py-4 text-sm text-gray-500">
-                          {folder.photoCount}
-                        </td>
-                        <td className="whitespace-nowrap px-6 py-4 text-sm text-gray-500">
-                          {folder.lastModified}
-                        </td>
-                        <td className="whitespace-nowrap px-6 py-4 text-right text-sm font-medium">
-                          <button className="text-blue-600 hover:text-blue-900">
-                            <PencilIcon className="h-5 w-5" />
-                          </button>
-                          <button className="ml-4 text-red-600 hover:text-red-900">
-                            <TrashIcon className="h-5 w-5" />
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
+        <div className="bg-white shadow overflow-hidden sm:rounded-lg">
+          <table className="min-w-full divide-y divide-gray-200">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="px-6 py-3 text-left text-xs font-medium text-[#50AFC9] uppercase tracking-wider">
+                  Email
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-[#50AFC9] uppercase tracking-wider">
+                  Rôle
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-[#50AFC9] uppercase tracking-wider">
+                  Date d'inscription
+                </th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-[#50AFC9] uppercase tracking-wider">
+                  Actions
+                </th>
+              </tr>
+            </thead>
+            <tbody className="bg-white divide-y divide-gray-200">
+              {users.map((user) => (
+                <tr key={user.id}>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                    {user.email}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    {user.role}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    {new Date(user.created_at).toLocaleDateString()}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                    <button
+                      onClick={() => handleUpdateUser(user.id)}
+                      className="text-[#50AFC9] hover:text-[#3F8BA1]"
+                    >
+                      <PencilIcon className="h-5 w-5" />
+                    </button>
+                    <button
+                      onClick={() => handleDeleteUser(user.id)}
+                      className="ml-4 text-red-600 hover:text-red-900"
+                    >
+                      <TrashIcon className="h-5 w-5" />
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       </div>
     </div>

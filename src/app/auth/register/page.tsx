@@ -1,209 +1,137 @@
 'use client'
 
-import { zodResolver } from '@hookform/resolvers/zod'
-import { useForm } from 'react-hook-form'
-import { z } from 'zod'
-import Link from 'next/link'
+import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import config from '@/lib/config'
 
-const registerSchema = z.object({
-  name: z.string().min(2, 'Le nom doit contenir au moins 2 caractères'),
-  email: z.string().email('Email invalide'),
-  password: z.string().min(6, 'Le mot de passe doit contenir au moins 6 caractères'),
-  confirmPassword: z.string(),
-}).refine((data) => data.password === data.confirmPassword, {
-  message: "Les mots de passe ne correspondent pas",
-  path: ["confirmPassword"],
-})
-
-type RegisterFormData = z.infer<typeof registerSchema>
-
 export default function RegisterPage() {
   const router = useRouter()
-  const {
-    register,
-    handleSubmit,
-    formState: { errors, isSubmitting },
-  } = useForm<RegisterFormData>({
-    resolver: zodResolver(registerSchema),
-  })
+  const [name, setName] = useState('')
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const [isLoading, setIsLoading] = useState(false)
 
-  const onSubmit = async (data: RegisterFormData) => {
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setIsLoading(true)
+    setError(null)
+
     try {
-      console.log('Début de l\'inscription...')
-      console.log('URL Supabase:', config.supabase.url)
-      console.log('Clé API:', config.supabase.anonKey.substring(0, 10) + '...')
-
-      // Vérifier la connexion à Supabase
-      console.log('Vérification de la session...')
-      const { data: { session: currentSession } } = await supabase.auth.getSession()
-      if (currentSession) {
-        console.log('Session existante trouvée, déconnexion...')
-        await supabase.auth.signOut()
-      }
-
-      // Créer l'utilisateur dans Supabase Auth
-      console.log('Tentative de création de l\'utilisateur...')
-      const { data: authData, error: authError } = await supabase.auth.signUp({
-        email: data.email,
-        password: data.password,
+      const { error } = await supabase.auth.signUp({
+        email,
+        password,
         options: {
           emailRedirectTo: `${window.location.origin}/auth/callback`,
           data: {
-            name: data.name
+            name: name
           }
         },
       })
 
-      console.log('Réponse de signUp:', { authData, authError })
+      if (error) throw error
 
-      if (authError) {
-        console.error('Erreur d\'authentification détaillée:', authError)
-        throw authError
-      }
-
-      if (!authData.user) {
-        throw new Error('Aucun utilisateur créé')
-      }
-
-      console.log('Utilisateur créé avec succès:', authData.user.id)
-
-      // Créer l'utilisateur dans la table users
-      console.log('Création de l\'utilisateur dans la base de données...')
-      const { error: dbError } = await supabase
-        .from('users')
-        .insert([
-          {
-            id: authData.user.id,
-            name: data.name,
-            email: data.email,
-            role: 'user',
-          },
-        ])
-
-      if (dbError) {
-        console.error('Erreur base de données détaillée:', dbError)
-        throw dbError
-      }
-
-      console.log('Inscription terminée avec succès')
-      // Rediriger vers la page de connexion avec un message de confirmation
-      router.push('/auth/login?registered=true&emailConfirmation=true')
-    } catch (error: any) {
-      console.error('Erreur détaillée lors de l\'inscription:', error)
-      if (error.message.includes('Failed to fetch')) {
-        alert('Impossible de se connecter au serveur. Vérifiez votre connexion internet.')
-      } else if (error.message.includes('Email already registered')) {
-        alert('Cette adresse email est déjà utilisée.')
-      } else {
-        alert(`Une erreur est survenue lors de l\'inscription: ${error.message}`)
-      }
+      router.push('/auth/verify-email')
+    } catch (err) {
+      setError('Une erreur est survenue lors de l\'inscription')
+    } finally {
+      setIsLoading(false)
     }
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gray-50 px-4 py-12 sm:px-6 lg:px-8">
-      <div className="w-full max-w-md space-y-8">
-        <div>
-          <h2 className="mt-6 text-center text-3xl font-bold tracking-tight text-gray-900">
-            Créer un compte
-          </h2>
-        </div>
-        <form className="mt-8 space-y-6" onSubmit={handleSubmit(onSubmit)}>
-          <div className="space-y-4">
+    <div className="min-h-screen bg-gray-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
+      <div className="sm:mx-auto sm:w-full sm:max-w-md">
+        <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
+          Créer un compte
+        </h2>
+      </div>
+
+      <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
+        <div className="bg-white py-8 px-4 shadow sm:rounded-lg sm:px-10">
+          <form className="space-y-6" onSubmit={handleSubmit}>
             <div>
               <label htmlFor="name" className="block text-sm font-medium text-gray-700">
                 Nom complet
               </label>
               <div className="mt-1">
                 <input
-                  {...register('name')}
+                  id="name"
+                  name="name"
                   type="text"
-                  className="block w-full rounded-md border border-gray-300 px-3 py-2 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 sm:text-sm"
-                  placeholder="John Doe"
+                  autoComplete="name"
+                  required
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-[#50AFC9] focus:border-[#50AFC9] sm:text-sm"
                 />
               </div>
-              {errors.name && (
-                <p className="mt-1 text-sm text-red-600">{errors.name.message}</p>
-              )}
             </div>
+
             <div>
               <label htmlFor="email" className="block text-sm font-medium text-gray-700">
-                Adresse email
+                Email
               </label>
               <div className="mt-1">
                 <input
-                  {...register('email')}
+                  id="email"
+                  name="email"
                   type="email"
-                  className="block w-full rounded-md border border-gray-300 px-3 py-2 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 sm:text-sm"
-                  placeholder="john@example.com"
+                  autoComplete="email"
+                  required
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-[#50AFC9] focus:border-[#50AFC9] sm:text-sm"
                 />
               </div>
-              {errors.email && (
-                <p className="mt-1 text-sm text-red-600">{errors.email.message}</p>
-              )}
             </div>
+
             <div>
               <label htmlFor="password" className="block text-sm font-medium text-gray-700">
                 Mot de passe
               </label>
               <div className="mt-1">
                 <input
-                  {...register('password')}
+                  id="password"
+                  name="password"
                   type="password"
-                  className="block w-full rounded-md border border-gray-300 px-3 py-2 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 sm:text-sm"
-                  placeholder="••••••••"
+                  autoComplete="new-password"
+                  required
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-[#50AFC9] focus:border-[#50AFC9] sm:text-sm"
                 />
               </div>
-              {errors.password && (
-                <p className="mt-1 text-sm text-red-600">
-                  {errors.password.message}
-                </p>
-              )}
             </div>
+
+            {error && (
+              <div className="text-red-600 text-sm text-center">{error}</div>
+            )}
+
             <div>
-              <label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-700">
-                Confirmer le mot de passe
-              </label>
-              <div className="mt-1">
-                <input
-                  {...register('confirmPassword')}
-                  type="password"
-                  className="block w-full rounded-md border border-gray-300 px-3 py-2 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 sm:text-sm"
-                  placeholder="••••••••"
-                />
-              </div>
-              {errors.confirmPassword && (
-                <p className="mt-1 text-sm text-red-600">
-                  {errors.confirmPassword.message}
-                </p>
-              )}
+              <button
+                type="submit"
+                disabled={isLoading}
+                className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-[#50AFC9] hover:bg-[#3F8BA1] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#50AFC9]"
+              >
+                {isLoading ? 'Inscription...' : 'S\'inscrire'}
+              </button>
             </div>
-          </div>
+          </form>
 
-          <div>
-            <button
-              type="submit"
-              disabled={isSubmitting}
-              className="group relative flex w-full justify-center rounded-md bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 disabled:opacity-50"
-            >
-              {isSubmitting ? 'Inscription en cours...' : 'S\'inscrire'}
-            </button>
+          <div className="mt-6 text-center">
+            <p className="text-sm text-gray-600">
+              Déjà un compte ?{' '}
+              <Link
+                href="/auth/login"
+                className="font-medium text-[#50AFC9] hover:text-[#3F8BA1]"
+              >
+                Se connecter
+              </Link>
+            </p>
           </div>
-        </form>
-
-        <div className="text-center">
-          <p className="text-sm text-gray-600">
-            Déjà un compte ?{' '}
-            <Link
-              href="/auth/login"
-              className="font-medium text-blue-600 hover:text-blue-500"
-            >
-              Se connecter
-            </Link>
-          </p>
         </div>
       </div>
     </div>

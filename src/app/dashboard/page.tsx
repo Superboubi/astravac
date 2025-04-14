@@ -35,6 +35,10 @@ export default function DashboardPage() {
   const [error, setError] = useState<string | null>(null)
   const [selectedFolder, setSelectedFolder] = useState<string | null>(null)
   const [isDragging, setIsDragging] = useState(false)
+  const [isCreatingFolder, setIsCreatingFolder] = useState(false)
+  const [newFolderName, setNewFolderName] = useState('')
+  const [renamingFolderId, setRenamingFolderId] = useState<string | null>(null)
+  const [renamingFolderName, setRenamingFolderName] = useState('')
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -311,179 +315,221 @@ export default function DashboardPage() {
     }
   }
 
+  const handleRenameFolder = async (folderId: string) => {
+    if (!renamingFolderName.trim()) return
+
+    try {
+      const { error: updateError } = await supabase
+        .from('folders')
+        .update({ name: renamingFolderName.trim() })
+        .eq('id', folderId)
+
+      if (updateError) throw updateError
+
+      setFolders((prevFolders) =>
+        prevFolders.map((folder) =>
+          folder.id === folderId
+            ? { ...folder, name: renamingFolderName.trim() }
+            : folder
+        )
+      )
+      setRenamingFolderId(null)
+      setRenamingFolderName('')
+    } catch (err) {
+      setError('Erreur lors du renommage du dossier')
+      console.error(err)
+    }
+  }
+
   return (
-    <div className="min-h-screen bg-gray-100">
+    <div className="min-h-screen bg-gray-50">
       <Navbar />
-      <div className="flex pt-4">
-        {/* Sidebar */}
-        <div className="w-64 bg-white shadow-lg min-h-[calc(100vh-64px)] sticky top-16">
-          <div className="p-4">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xl font-semibold">Mes Dossiers</h2>
-              <button
-                onClick={createNewFolder}
-                className="bg-blue-500 text-white p-2 rounded-lg hover:bg-blue-600 transition-colors"
-                title="Nouveau dossier"
-              >
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  className="h-5 w-5"
-                  viewBox="0 0 20 20"
-                  fill="currentColor"
-                >
-                  <path
-                    fillRule="evenodd"
-                    d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z"
-                    clipRule="evenodd"
-                  />
-                </svg>
-              </button>
-            </div>
-            <div className="space-y-2 max-h-[calc(100vh-200px)] overflow-y-auto">
-              {folders.map((folder) => (
-                <div
-                  key={folder.id}
-                  className={`p-3 rounded-lg cursor-pointer transition-colors group ${
-                    selectedFolder === folder.id
-                      ? 'bg-blue-100 text-blue-700'
-                      : 'hover:bg-gray-100'
-                  }`}
-                  onClick={() => setSelectedFolder(folder.id)}
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-2">
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        className={`h-5 w-5 ${
-                          selectedFolder === folder.id ? 'text-blue-700' : 'text-gray-400'
-                        }`}
-                        viewBox="0 0 20 20"
-                        fill="currentColor"
-                      >
-                        <path
-                          fillRule="evenodd"
-                          d="M2 6a2 2 0 012-2h4l2 2h4a2 2 0 012 2v1H2V6zm0 3v6a2 2 0 002 2h12a2 2 0 002-2V9H2z"
-                          clipRule="evenodd"
-                        />
-                      </svg>
-                      <span className="font-medium truncate">{folder.name}</span>
-                    </div>
-                    <span className="text-sm text-gray-500 bg-gray-100 px-2 py-1 rounded-full">
-                      {folder.photoCount}
-                    </span>
-                  </div>
-                  <p className="text-xs text-gray-500 mt-1">
-                    Modifié le {folder.lastModified}
-                  </p>
-                </div>
-              ))}
-            </div>
-          </div>
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="mb-8 flex justify-between items-center">
+          <h1 className="text-3xl font-bold text-gray-900">Mes dossiers</h1>
+          <button
+            onClick={createNewFolder}
+            className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-[#50AFC9] hover:bg-[#3F8BA1] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#50AFC9]"
+          >
+            <svg
+              className="-ml-1 mr-2 h-5 w-5"
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 20 20"
+              fill="currentColor"
+            >
+              <path
+                fillRule="evenodd"
+                d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z"
+                clipRule="evenodd"
+              />
+            </svg>
+            Nouveau dossier
+          </button>
         </div>
 
-        {/* Main Content */}
-        <div className="flex-1 px-8">
-          <div className="max-w-4xl mx-auto">
-            <div className="flex items-center justify-between mb-6">
-              <h1 className="text-2xl font-bold">Tableau de bord</h1>
-              {selectedFolder && (
-                <div className="flex items-center space-x-2">
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    className="h-5 w-5 text-gray-400"
-                    viewBox="0 0 20 20"
-                    fill="currentColor"
-                  >
-                    <path
-                      fillRule="evenodd"
-                      d="M2 6a2 2 0 012-2h4l2 2h4a2 2 0 012 2v1H2V6zm0 3v6a2 2 0 002 2h12a2 2 0 002-2V9H2z"
-                      clipRule="evenodd"
-                    />
-                  </svg>
-                  <span className="text-gray-600">
-                    {folders.find(f => f.id === selectedFolder)?.name}
-                  </span>
-                </div>
-              )}
-            </div>
-
-            {error && (
-              <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
-                {error}
-              </div>
-            )}
-
-            {isLoading ? (
-              <div className="text-center py-8">
-                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto"></div>
-              </div>
-            ) : (
-              <>
-                {/* Zone de dépôt */}
-                <div
-                  className={`border-2 border-dashed rounded-lg p-8 text-center mb-8 transition-colors ${
-                    isDragging
-                      ? 'border-blue-500 bg-blue-50'
-                      : 'border-gray-300 hover:border-blue-500'
-                  }`}
-                  onDragEnter={handleDragEnter}
-                  onDragLeave={handleDragLeave}
-                  onDragOver={handleDragOver}
-                  onDrop={handleDrop}
-                >
-                  <input
-                    type="file"
-                    accept="image/*"
-                    multiple
-                    className="hidden"
-                    onChange={handleFileSelect}
-                    id="file-upload"
-                  />
-                  <label
-                    htmlFor="file-upload"
-                    className="cursor-pointer text-blue-500 hover:text-blue-600"
-                  >
-                    <div className="text-4xl mb-2">📸</div>
-                    <p className="text-lg mb-2">
-                      Glissez-déposez vos photos ici ou cliquez pour sélectionner
-                    </p>
-                    <p className="text-sm text-gray-500">
-                      Formats acceptés : JPG, PNG, GIF (max 10MB)
-                    </p>
-                  </label>
-                </div>
-
-                {/* Photos récentes */}
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                  {selectedFolder ? (
-                    // Afficher les photos du dossier sélectionné
-                    folders
-                      .find(f => f.id === selectedFolder)
-                      ?.photos
-                      .sort((a, b) => new Date(b.uploaded_at).getTime() - new Date(a.uploaded_at).getTime())
-                      .map((photo) => (
-                        <PhotoPreview
-                          key={photo.id}
-                          url={`data:${photo.mime_type};base64,${photo.image_data}`}
-                          name={photo.name}
-                          uploaded_at={photo.uploaded_at}
-                          onDelete={() => handleDeletePhoto(photo.id)}
+        {isLoading ? (
+          <div className="text-center py-8">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto"></div>
+          </div>
+        ) : error ? (
+          <div className="text-center text-red-600 py-8">{error}</div>
+        ) : folders.length === 0 ? (
+          <div className="text-center py-12 bg-white rounded-lg shadow">
+            <svg
+              className="w-12 h-12 mx-auto text-gray-400 mb-4"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"
+              />
+            </svg>
+            <p className="text-lg font-medium text-gray-900 mb-2">
+              Aucun dossier
+            </p>
+            <p className="text-sm text-gray-500">
+              Créez votre premier dossier pour commencer
+            </p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+            {folders.map((folder) => (
+              <div
+                key={folder.id}
+                className="bg-white rounded-lg shadow-sm hover:shadow-md transition-shadow cursor-pointer"
+                onClick={() => router.push(`/dashboard/${folder.id}`)}
+              >
+                <div className="p-6">
+                  <div className="flex items-center justify-between mb-4">
+                    {renamingFolderId === folder.id ? (
+                      <div className="flex items-center space-x-2">
+                        <input
+                          type="text"
+                          value={renamingFolderName}
+                          onChange={(e) => setRenamingFolderName(e.target.value)}
+                          className="px-3 py-1 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#50AFC9]"
+                          autoFocus
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') handleRenameFolder(folder.id)
+                            if (e.key === 'Escape') {
+                              setRenamingFolderId(null)
+                              setRenamingFolderName('')
+                            }
+                          }}
+                          onClick={(e) => e.stopPropagation()}
                         />
-                      ))
-                  ) : (
-                    // Afficher un message si aucun dossier n'est sélectionné
-                    <div className="col-span-full text-center py-12">
-                      <div className="text-4xl mb-4">📁</div>
-                      <p className="text-lg text-gray-600">
-                        Sélectionnez un dossier pour voir ses photos
-                      </p>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            handleRenameFolder(folder.id)
+                          }}
+                          className="text-green-600 hover:text-green-700"
+                        >
+                          <svg
+                            className="h-5 w-5"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={2}
+                              d="M5 13l4 4L19 7"
+                            />
+                          </svg>
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setRenamingFolderId(null)
+                            setRenamingFolderName('')
+                          }}
+                          className="text-red-600 hover:text-red-700"
+                        >
+                          <svg
+                            className="h-5 w-5"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={2}
+                              d="M6 18L18 6M6 6l12 12"
+                            />
+                          </svg>
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center space-x-2">
+                        <h2 className="text-lg font-medium text-gray-900">
+                          {folder.name}
+                        </h2>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setRenamingFolderId(folder.id)
+                            setRenamingFolderName(folder.name)
+                          }}
+                          className="text-gray-500 hover:text-gray-700"
+                        >
+                          <svg
+                            className="h-5 w-5"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={2}
+                              d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
+                            />
+                          </svg>
+                        </button>
+                      </div>
+                    )}
+                    <span className="text-sm text-gray-500 bg-gray-100 px-2 py-1 rounded-full">
+                      {folder.photoCount} photos
+                    </span>
+                  </div>
+                  <div className="text-sm text-gray-500 mb-4">
+                    Dernière modification : {folder.lastModified}
+                  </div>
+                  {folder.photos.length > 0 && (
+                    <div className="grid grid-cols-3 gap-2">
+                      {folder.photos.slice(0, 3).map((photo) => (
+                        <div
+                          key={photo.id}
+                          className="aspect-square relative rounded overflow-hidden"
+                        >
+                          <img
+                            src={`data:${photo.mime_type};base64,${photo.image_data}`}
+                            alt={photo.name}
+                            className="object-cover w-full h-full"
+                          />
+                        </div>
+                      ))}
+                      {folder.photos.length > 3 && (
+                        <div className="aspect-square relative rounded overflow-hidden bg-gray-100 flex items-center justify-center">
+                          <span className="text-sm text-gray-500">
+                            +{folder.photos.length - 3}
+                          </span>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
-              </>
-            )}
+              </div>
+            ))}
           </div>
-        </div>
+        )}
       </div>
     </div>
   )
