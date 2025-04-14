@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Download, Trash2, ChevronUp, ChevronDown, X } from 'lucide-react'
+import Image from 'next/image'
 
 interface Photo {
   id: string
@@ -73,9 +74,11 @@ export function PhotoGrid({ photos, onDelete, onDownload }: PhotoGridProps) {
             transition={{ delay: index * 0.05 }}
             className="relative group aspect-square"
           >
-            <img
+            <Image
               src={photo.url}
               alt={photo.name}
+              width={300}
+              height={200}
               className="w-full h-full object-cover rounded-lg cursor-pointer"
               onClick={() => {
                 setSelectedPhoto(photo)
@@ -145,9 +148,11 @@ export function PhotoGrid({ photos, onDelete, onDownload }: PhotoGridProps) {
                 }`}
               >
                 <div className="relative">
-                  <img
+                  <Image
                     src={selectedPhoto.url}
                     alt={selectedPhoto.name}
+                    width={300}
+                    height={200}
                     className={`w-full h-auto ${isMinimized ? 'max-h-48' : 'max-h-[80vh]'} object-contain`}
                   />
                   <div className="absolute top-4 right-4 flex space-x-2">

@@ -1,13 +1,16 @@
 import { FC } from 'react'
 import { PhotoPreviewProps } from '@/types/photo-preview'
+import Image from 'next/image'
 
 const PhotoPreview: FC<PhotoPreviewProps> = ({ url, name, created_at, onDelete }) => {
   return (
     <div className="relative group">
-      <img
+      <Image
         src={url}
         alt={name}
-        className="w-full h-48 object-cover rounded-lg"
+        width={300}
+        height={200}
+        className="object-cover w-full h-full"
       />
       <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-20 transition-opacity rounded-lg" />
       <div className="absolute bottom-0 left-0 right-0 p-2 bg-gradient-to-t from-black/50 to-transparent rounded-b-lg">

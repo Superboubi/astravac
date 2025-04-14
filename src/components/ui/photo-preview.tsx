@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import Image from 'next/image'
 
 interface PhotoPreviewProps {
   url: string
@@ -27,9 +28,11 @@ export function PhotoPreview({ url, name, created_at, onDelete }: PhotoPreviewPr
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
             </div>
           )}
-          <img
-            src={cleanUrl}
+          <Image
+            src={url}
             alt={name}
+            width={300}
+            height={200}
             className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
             onClick={() => setIsOpen(true)}
             onLoad={handleImageLoad}
@@ -92,9 +95,11 @@ export function PhotoPreview({ url, name, created_at, onDelete }: PhotoPreviewPr
               </svg>
             </button>
             <div className="relative">
-              <img
-                src={cleanUrl}
+              <Image
+                src={url}
                 alt={name}
+                width={300}
+                height={200}
                 className="w-full h-auto rounded-lg"
                 style={{ maxHeight: '80vh' }}
               />

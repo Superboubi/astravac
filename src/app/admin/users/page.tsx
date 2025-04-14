@@ -6,6 +6,7 @@ import { AdminNavbar } from '@/components/ui/admin-navbar'
 import { supabase } from '@/lib/supabase'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Search, Filter, ChevronLeft, ChevronRight, Download, Trash2, Edit2, Image as ImageIcon, X, User, Mail, Folder } from 'lucide-react'
+import Image from 'next/image'
 
 interface User {
   id: string
@@ -14,6 +15,7 @@ interface User {
   role: 'user' | 'admin'
   folders: Folder[]
   created_at: string
+  avatar_url?: string
 }
 
 interface Folder {
@@ -346,11 +348,15 @@ export default function AdminUsersPage() {
                     >
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="flex items-center">
-                          <div className="h-10 w-10 rounded-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center">
-                            <span className="text-white font-medium">
-                              {user.name.charAt(0)}
-                            </span>
-                          </div>
+                          {user.avatar_url && (
+                            <Image
+                              src={user.avatar_url}
+                              alt={`Avatar de ${user.name || 'utilisateur'}`}
+                              width={40}
+                              height={40}
+                              className="rounded-full"
+                            />
+                          )}
                           <div className="ml-4">
                             <div className="text-sm font-medium text-gray-900">{user.name}</div>
                           </div>

@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { Photo } from '@/types'
+import Image from 'next/image'
 
 interface ImagePreviewProps {
   photo: Photo
@@ -129,10 +130,12 @@ export function ImagePreview({ photo, onClose, onRename }: ImagePreviewProps) {
           </div>
         </div>
         <div className="p-4">
-          <img
-            src={`data:${photo.mime_type};base64,${photo.image_data}`}
+          <Image
+            src={photo.url}
             alt={photo.name}
-            className="max-h-[70vh] w-auto mx-auto"
+            width={800}
+            height={600}
+            className="max-w-full max-h-[80vh] object-contain"
           />
         </div>
       </div>

@@ -5,6 +5,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { Navbar } from '@/components/ui/navbar'
 import { supabase } from '@/lib/supabase'
 import { PhotoPreview } from '@/components/ui/photo-preview'
+import Image from 'next/image'
 
 interface Folder {
   id: string
