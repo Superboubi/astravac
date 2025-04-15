@@ -22,19 +22,24 @@ interface User {
 interface Folder {
   id: string
   name: string
+  user_id: string
+  created_at: string
+  updated_at: string
+  photos: Photo[]
   photoCount: number
   lastModified: string
-  photos: Photo[]
 }
 
 interface Photo {
   id: string
-  url: string
   name: string
-  size: number
+  mime_type: string
+  image_data: string
   uploaded_at: string
-  folder_id: string
   user_id: string
+  folder_id: string
+  size: number
+  url: string
 }
 
 export default function UserDetailsPage({ params }: { params: { userId: string } }) {
@@ -51,29 +56,74 @@ export default function UserDetailsPage({ params }: { params: { userId: string }
   const [selectedPhoto, setSelectedPhoto] = useState<Photo | null>(null)
   const [isPreviewOpen, setIsPreviewOpen] = useState(false)
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set())
-  const [isExpanded, setIsExpanded] = useState<string | null>(null)
+  const [hoveredFolder, setHoveredFolder] = useState<string | null>(null)
+  const [isAuthChecked, setIsAuthChecked] = useState(false)
 
   const fetchUserDetails = useCallback(async () => {
     try {
-      const { data, error } = await supabase
+      setIsLoading(true)
+      setError(null)
+
+      // 1. Récupérer l'utilisateur
+      const { data: userData, error: userError } = await supabase
         .from('users')
         .select('*')
         .eq('id', params.userId)
         .single()
 
-      if (error) throw error
-      setUser(data)
-    } catch (error) {
-      console.error('Erreur lors de la récupération des détails:', error)
+      if (userError) throw userError
+      if (!userData) throw new Error('Utilisateur non trouvé')
+
+      // 2. Récupérer les dossiers avec leurs photos
+      const { data: folders, error: foldersError } = await supabase
+        .from('folders')
+        .select(`
+          *,
+          photos (
+            id,
+            name,
+            mime_type,
+            image_data,
+            size,
+            uploaded_at,
+            folder_id,
+            user_id
+          )
+        `)
+        .eq('user_id', params.userId)
+        .order('created_at', { ascending: false })
+
+      if (foldersError) throw foldersError
+
+      // 3. Organiser les données
+      const foldersWithPhotos = (folders || []).map(folder => ({
+        ...folder,
+        photos: (folder.photos || []).map((photo: Photo) => ({
+          ...photo,
+          url: `data:${photo.mime_type};base64,${photo.image_data}`
+        })),
+        photoCount: (folder.photos || []).length,
+        lastModified: folder.photos && folder.photos.length > 0
+          ? new Date(Math.max(...folder.photos.map((p: Photo) => new Date(p.uploaded_at).getTime()))).toISOString()
+          : folder.updated_at
+      }))
+
+      setUser({
+        ...userData,
+        folders: foldersWithPhotos
+      })
+    } catch (error: any) {
+      console.error('Erreur:', error)
+      setError(error.message)
+    } finally {
+      setIsLoading(false)
     }
   }, [params.userId])
 
   useEffect(() => {
-    fetchUserDetails()
-  }, [fetchUserDetails])
-
-  useEffect(() => {
     const checkAuth = async () => {
+      if (isAuthChecked) return
+
       const { data: { session } } = await supabase.auth.getSession()
       if (!session) {
         router.push('/auth/login')
@@ -91,10 +141,11 @@ export default function UserDetailsPage({ params }: { params: { userId: string }
         return
       }
 
+      setIsAuthChecked(true)
       fetchUserDetails()
     }
     checkAuth()
-  }, [router, params.userId])
+  }, [isAuthChecked, fetchUserDetails])
 
   const handleCreateFolder = async () => {
     if (!newFolderName.trim()) {
@@ -152,11 +203,12 @@ export default function UserDetailsPage({ params }: { params: { userId: string }
   }
 
   const handleDeleteFolder = async (folderId: string) => {
-    if (!confirm('Êtes-vous sûr de vouloir supprimer ce dossier ? Cette action est irréversible.')) {
+    if (!confirm('Êtes-vous sûr de vouloir supprimer ce dossier ? Toutes les photos qu\'il contient seront également supprimées.')) {
       return
     }
 
     try {
+      // Supprimer d'abord toutes les photos du dossier
       const { error: photosError } = await supabase
         .from('photos')
         .delete()
@@ -164,6 +216,7 @@ export default function UserDetailsPage({ params }: { params: { userId: string }
 
       if (photosError) throw photosError
 
+      // Puis supprimer le dossier
       const { error: folderError } = await supabase
         .from('folders')
         .delete()
@@ -171,7 +224,14 @@ export default function UserDetailsPage({ params }: { params: { userId: string }
 
       if (folderError) throw folderError
 
-      fetchUserDetails()
+      // Mettre à jour l'état local
+      setUser(prev => {
+        if (!prev) return null
+        return {
+          ...prev,
+          folders: prev.folders.filter(folder => folder.id !== folderId)
+        }
+      })
     } catch (error: any) {
       console.error('Erreur lors de la suppression du dossier:', error)
       setError('Erreur lors de la suppression du dossier')
@@ -215,6 +275,57 @@ export default function UserDetailsPage({ params }: { params: { userId: string }
     }
   }
 
+  const compressImage = async (file: File): Promise<File> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.readAsDataURL(file)
+      reader.onload = (event) => {
+        const img = document.createElement('img')
+        img.src = event.target?.result as string
+        img.onload = () => {
+          const canvas = document.createElement('canvas')
+          const ctx = canvas.getContext('2d')
+          if (!ctx) {
+            reject(new Error('Impossible de créer le contexte canvas'))
+            return
+          }
+
+          // Calculer les nouvelles dimensions
+          let width = img.width
+          let height = img.height
+          const maxDimension = 1920 // Taille maximale en pixels
+
+          if (width > height && width > maxDimension) {
+            height = Math.round((height * maxDimension) / width)
+            width = maxDimension
+          } else if (height > maxDimension) {
+            width = Math.round((width * maxDimension) / height)
+            height = maxDimension
+          }
+
+          canvas.width = width
+          canvas.height = height
+          ctx.drawImage(img, 0, 0, width, height)
+
+          // Convertir en JPEG avec une qualité de 80%
+          canvas.toBlob(
+            (blob) => {
+              if (!blob) {
+                reject(new Error('Impossible de compresser l\'image'))
+                return
+              }
+              resolve(new File([blob], file.name, { type: 'image/jpeg' }))
+            },
+            'image/jpeg',
+            0.8
+          )
+        }
+        img.onerror = () => reject(new Error('Erreur lors du chargement de l\'image'))
+      }
+      reader.onerror = () => reject(new Error('Erreur lors de la lecture du fichier'))
+    })
+  }
+
   const handleFileUpload = async (folderId: string, files: FileList) => {
     if (!files.length) return
 
@@ -235,59 +346,65 @@ export default function UserDetailsPage({ params }: { params: { userId: string }
           throw new Error(`Le fichier ${file.name} est trop volumineux (max 10MB)`)
         }
 
-        const fileExt = file.name.split('.').pop()?.toLowerCase()
-        if (!fileExt) {
-          throw new Error(`Extension de fichier invalide pour ${file.name}`)
-        }
+        // Compression de l'image
+        const compressedFile = await compressImage(file)
+        
+        // Conversion en base64
+        const reader = new FileReader()
+        reader.readAsDataURL(compressedFile)
+        
+        const base64Data = await new Promise<string>((resolve, reject) => {
+          reader.onload = () => resolve(reader.result as string)
+          reader.onerror = () => reject(new Error('Erreur lors de la lecture du fichier'))
+        })
 
-        // Génération d'un nom de fichier unique
-        const timestamp = Date.now()
-        const randomString = Math.random().toString(36).substring(2, 8)
-        const fileName = `${timestamp}-${randomString}.${fileExt}`
-        const filePath = `${params.userId}/${folderId}/${fileName}`
-
-        // Upload du fichier
-        const { error: uploadError } = await supabase.storage
-          .from('photos')
-          .upload(filePath, file, {
-            cacheControl: '3600',
-            upsert: false
-          })
-
-        if (uploadError) {
-          console.error('Erreur upload:', uploadError)
-          throw new Error(`Erreur lors de l'upload de ${file.name}: ${uploadError.message}`)
-        }
-
-        // Récupération de l'URL publique
-        const { data: { publicUrl } } = supabase.storage
-          .from('photos')
-          .getPublicUrl(filePath)
-
-        // Insertion dans la base de données
-        const { error: dbError } = await supabase
+        // Créer l'entrée dans la table photos
+        const { data: photoData, error: dbError } = await supabase
           .from('photos')
           .insert([
             {
               name: file.name,
-              url: publicUrl,
-              size: file.size,
+              mime_type: file.type,
+              image_data: base64Data.split(',')[1], // Supprimer le préfixe data:image/jpeg;base64,
+              size: compressedFile.size,
               folder_id: folderId,
               user_id: params.userId,
               uploaded_at: new Date().toISOString()
             }
           ])
+          .select()
+          .single()
 
         if (dbError) {
           console.error('Erreur DB:', dbError)
           throw new Error(`Erreur lors de l'enregistrement de ${file.name}: ${dbError.message}`)
         }
 
+        if (photoData) {
+          // Mettre à jour l'état local avec la nouvelle photo
+          setUser(prev => {
+            if (!prev) return null
+            return {
+              ...prev,
+              folders: prev.folders.map(folder => {
+                if (folder.id === folderId) {
+                  return {
+                    ...folder,
+                    photos: [{
+                      ...photoData,
+                      url: `data:${photoData.mime_type};base64,${photoData.image_data}`
+                    }, ...folder.photos],
+                    photoCount: folder.photoCount + 1
+                  }
+                }
+                return folder
+              })
+            }
+          })
+        }
+
         setUploadProgress(((i + 1) / files.length) * 100)
       }
-
-      // Rafraîchissement des données après l'upload
-      await fetchUserDetails()
     } catch (error: any) {
       console.error('Erreur lors de l\'upload des photos:', error)
       setError(error.message || 'Erreur lors de l\'upload des photos')
@@ -343,6 +460,41 @@ export default function UserDetailsPage({ params }: { params: { userId: string }
     })
   }
 
+  const handleRenamePhoto = async (photoId: string, newName: string) => {
+    if (!newName.trim()) {
+      setError('Le nom ne peut pas être vide')
+      return
+    }
+
+    try {
+      const { error } = await supabase
+        .from('photos')
+        .update({ name: newName.trim() })
+        .eq('id', photoId)
+
+      if (error) throw error
+
+      // Mettre à jour l'état local
+      setUser(prev => {
+        if (!prev) return null
+        return {
+          ...prev,
+          folders: prev.folders.map(folder => ({
+            ...folder,
+            photos: folder.photos.map(photo => 
+              photo.id === photoId 
+                ? { ...photo, name: newName.trim() }
+                : photo
+            )
+          }))
+        }
+      })
+    } catch (error: any) {
+      console.error('Erreur lors du renommage de la photo:', error)
+      setError('Erreur lors du renommage de la photo')
+    }
+  }
+
   if (isLoading) {
     return (
       <div className="min-h-screen bg-gray-50">
@@ -359,7 +511,18 @@ export default function UserDetailsPage({ params }: { params: { userId: string }
       <div className="min-h-screen bg-gray-50">
         <AdminNavbar />
         <div className="flex items-center justify-center min-h-[calc(100vh-64px)]">
-          <div className="text-red-500">{error || 'Utilisateur non trouvé'}</div>
+          <div className="text-center">
+            <h2 className="text-2xl font-bold text-gray-900 mb-4">
+              {error || 'Utilisateur non trouvé'}
+            </h2>
+            <button
+              onClick={() => router.push('/admin/users')}
+              className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700"
+            >
+              <ArrowLeft className="h-5 w-5 mr-2" />
+              Retour à la liste des utilisateurs
+            </button>
+          </div>
         </div>
       </div>
     )
@@ -374,8 +537,7 @@ export default function UserDetailsPage({ params }: { params: { userId: string }
             <div className="flex items-center space-x-4">
               <button
                 onClick={() => router.push('/admin/users')}
-                className="rounded-md p-2 text-gray-400 hover:text-gray-500 hover:bg-gray-100 transition-colors duration-200"
-                aria-label="Retour à la liste"
+                className="rounded-md p-2 text-gray-400 hover:text-gray-500 hover:bg-gray-100"
               >
                 <ArrowLeft className="h-5 w-5" />
               </button>
@@ -431,7 +593,9 @@ export default function UserDetailsPage({ params }: { params: { userId: string }
               <Folder className="h-8 w-8 text-blue-500" />
               <div className="ml-4">
                 <h3 className="text-sm font-medium text-gray-500">Total dossiers</h3>
-                <p className="mt-1 text-2xl font-semibold text-gray-900">{user.folders.length}</p>
+                <p className="mt-1 text-2xl font-semibold text-gray-900">
+                  {user.folders ? user.folders.length : 0}
+                </p>
               </div>
             </div>
           </motion.div>
@@ -446,7 +610,7 @@ export default function UserDetailsPage({ params }: { params: { userId: string }
               <div className="ml-4">
                 <h3 className="text-sm font-medium text-gray-500">Total photos</h3>
                 <p className="mt-1 text-2xl font-semibold text-gray-900">
-                  {user.folders.reduce((acc, folder) => acc + folder.photoCount, 0)}
+                  {user.folders ? user.folders.reduce((acc, folder) => acc + (folder.photoCount || 0), 0) : 0}
                 </p>
               </div>
             </div>
@@ -462,7 +626,7 @@ export default function UserDetailsPage({ params }: { params: { userId: string }
               <div className="ml-4">
                 <h3 className="text-sm font-medium text-gray-500">Dernière activité</h3>
                 <p className="mt-1 text-2xl font-semibold text-gray-900">
-                  {user.folders.length > 0
+                  {user.folders && user.folders.length > 0
                     ? new Date(Math.max(...user.folders.map(f => new Date(f.lastModified).getTime())))
                         .toLocaleDateString()
                     : 'Aucune'}
@@ -523,77 +687,141 @@ export default function UserDetailsPage({ params }: { params: { userId: string }
               )}
             </AnimatePresence>
 
-            <AnimatePresence>
-              <ul className="mt-6 divide-y divide-gray-200">
-                {user.folders.map((folder) => (
-                  <motion.div
-                    key={folder.id}
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="bg-white rounded-lg shadow overflow-hidden"
-                  >
-                    <div className="p-4">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center space-x-4">
-                          <div className="h-10 w-10 rounded-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center">
-                            <span className="text-white font-medium">
-                              {folder.name.charAt(0)}
-                            </span>
-                          </div>
-                          <div>
-                            <h3 className="text-lg font-medium text-gray-900">{folder.name}</h3>
-                            <p className="text-sm text-gray-500">
-                              {folder.photoCount} photo{folder.photoCount > 1 ? 's' : ''} • Dernière modification: {folder.lastModified}
-                            </p>
-                          </div>
-                        </div>
-                        <div className="flex items-center space-x-4">
-                          <button
-                            onClick={() => handleDeleteFolder(folder.id)}
-                            className="text-red-500 hover:text-red-700 transition-colors duration-200"
-                            aria-label="Supprimer le dossier"
-                          >
-                            <Trash2 className="h-5 w-5" />
-                          </button>
-                          <button
-                            onClick={() => setIsExpanded(prev => prev === folder.id ? null : folder.id)}
-                            className="text-gray-400 hover:text-gray-600 transition-colors duration-200"
-                            aria-label={isExpanded === folder.id ? "Réduire le dossier" : "Expandre le dossier"}
-                          >
-                            <motion.div
-                              animate={{ rotate: isExpanded === folder.id ? 180 : 0 }}
-                              transition={{ duration: 0.2 }}
-                            >
-                              <ChevronDown className="h-5 w-5" />
-                            </motion.div>
-                          </button>
-                        </div>
+            <div className="mt-6 space-y-4">
+              {user?.folders.map((folder) => (
+                <motion.div
+                  key={folder.id}
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.3 }}
+                  className="border rounded-lg p-4 bg-white shadow-sm hover:shadow-md transition-shadow duration-200"
+                  onMouseEnter={() => setHoveredFolder(folder.id)}
+                  onMouseLeave={() => setHoveredFolder(null)}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-4">
+                      <div className="relative">
+                        <Folder className="h-8 w-8 text-blue-500" />
+                        {folder.photoCount > 0 && (
+                          <span className="absolute -top-1 -right-1 bg-blue-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center">
+                            {folder.photoCount}
+                          </span>
+                        )}
+                      </div>
+                      <div>
+                        <h3 className="text-lg font-medium text-gray-900">{folder.name}</h3>
+                        <p className="text-sm text-gray-500">
+                          Dernière modification: {formatDate(folder.lastModified)}
+                        </p>
                       </div>
                     </div>
-
-                    <AnimatePresence>
-                      {isExpanded === folder.id && (
+                    <div className="flex items-center space-x-4">
+                      <motion.button
+                        whileHover={{ scale: 1.1 }}
+                        whileTap={{ scale: 0.95 }}
+                        onClick={() => toggleFolder(folder.id)}
+                        className="text-gray-500 hover:text-gray-700 transition-colors duration-200"
+                        title={expandedFolders.has(folder.id) ? "Réduire" : "Agrandir"}
+                      >
+                        {expandedFolders.has(folder.id) ? (
+                          <ChevronUp className="h-5 w-5" />
+                        ) : (
+                          <ChevronDown className="h-5 w-5" />
+                        )}
+                      </motion.button>
+                      <motion.button
+                        whileHover={{ scale: 1.1 }}
+                        whileTap={{ scale: 0.95 }}
+                        onClick={() => handleDeleteFolder(folder.id)}
+                        className="text-red-500 hover:text-red-700 transition-colors duration-200"
+                        title="Supprimer le dossier"
+                      >
+                        <Trash2 className="h-5 w-5" />
+                      </motion.button>
+                      <label className="cursor-pointer">
+                        <input
+                          type="file"
+                          multiple
+                          accept="image/*"
+                          className="hidden"
+                          onChange={(e) => e.target.files && handleFileUpload(folder.id, e.target.files)}
+                        />
                         <motion.div
-                          initial={{ height: 0, opacity: 0 }}
-                          animate={{ height: 'auto', opacity: 1 }}
-                          exit={{ height: 0, opacity: 0 }}
-                          transition={{ duration: 0.3 }}
-                          className="overflow-hidden"
+                          whileHover={{ scale: 1.05 }}
+                          whileTap={{ scale: 0.95 }}
+                          className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 transition-colors duration-200"
                         >
-                          <div className="p-4 border-t border-gray-200">
-                            <PhotoGrid
-                              photos={folder.photos}
-                              onDelete={handleDeletePhoto}
-                              onDownload={handleDownloadPhoto}
-                            />
-                          </div>
+                          <Upload className="h-5 w-5 mr-2" />
+                          Ajouter des photos
                         </motion.div>
-                      )}
-                    </AnimatePresence>
-                  </motion.div>
-                ))}
-              </ul>
-            </AnimatePresence>
+                      </label>
+                    </div>
+                  </div>
+
+                  <AnimatePresence>
+                    {folder.photos.length > 0 && expandedFolders.has(folder.id) && (
+                      <motion.div
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: 'auto', opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        transition={{ duration: 0.3 }}
+                        className="mt-4 overflow-hidden"
+                      >
+                        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
+                          {folder.photos.map((photo) => (
+                            <motion.div
+                              key={photo.id}
+                              initial={{ opacity: 0, scale: 0.9 }}
+                              animate={{ opacity: 1, scale: 1 }}
+                              exit={{ opacity: 0, scale: 0.9 }}
+                              transition={{ duration: 0.2 }}
+                              className="relative group"
+                            >
+                              <img
+                                src={`data:${photo.mime_type};base64,${photo.image_data}`}
+                                alt={photo.name}
+                                className="w-full h-32 object-cover rounded-lg shadow-sm hover:shadow-md transition-shadow duration-200"
+                              />
+                              <motion.div
+                                initial={{ opacity: 0 }}
+                                animate={{ opacity: 1 }}
+                                className="absolute inset-0 bg-black bg-opacity-50 rounded-lg group-hover:bg-opacity-70 transition-opacity duration-200"
+                              >
+                                <div className="flex items-center justify-center h-full space-x-2">
+                                  <motion.button
+                                    whileHover={{ scale: 1.1 }}
+                                    whileTap={{ scale: 0.95 }}
+                                    onClick={() => {
+                                      const newName = prompt('Nouveau nom pour la photo:', photo.name)
+                                      if (newName && newName !== photo.name) {
+                                        handleRenamePhoto(photo.id, newName)
+                                      }
+                                    }}
+                                    className="text-white hover:text-blue-500 transition-colors duration-200"
+                                    title="Renommer"
+                                  >
+                                    <Edit2 className="h-6 w-6" />
+                                  </motion.button>
+                                  <motion.button
+                                    whileHover={{ scale: 1.1 }}
+                                    whileTap={{ scale: 0.95 }}
+                                    onClick={() => handleDeletePhoto(photo.id)}
+                                    className="text-white hover:text-red-500 transition-colors duration-200"
+                                    title="Supprimer"
+                                  >
+                                    <Trash2 className="h-6 w-6" />
+                                  </motion.button>
+                                </div>
+                              </motion.div>
+                            </motion.div>
+                          ))}
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </motion.div>
+              ))}
+            </div>
           </div>
         </div>
       </div>
