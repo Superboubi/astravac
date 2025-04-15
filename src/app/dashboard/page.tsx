@@ -6,26 +6,23 @@ import { Navbar } from '@/components/ui/navbar'
 import { supabase } from '@/lib/supabase'
 import { PhotoPreview } from '@/components/ui/photo-preview'
 import Image from 'next/image'
+import { PencilIcon, TrashIcon } from '@heroicons/react/24/outline'
 
 interface Folder {
   id: string
   name: string
   photoCount: number
   lastModified: string
-  photos: Photo[]
+  photos: PhotoPreview[]
   created_at: string
   updated_at: string
 }
 
-interface Photo {
+interface PhotoPreview {
   id: string
-  url: string
   name: string
-  size: number
+  url: string
   uploaded_at: string
-  folder_id: string
-  user_id: string
-  image_data: string
   mime_type: string
 }
 
@@ -44,6 +41,9 @@ export default function DashboardPage() {
   const [isCreating, setIsCreating] = useState(false)
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false)
   const [folderToDelete, setFolderToDelete] = useState<Folder | null>(null)
+  const [isRenaming, setIsRenaming] = useState(false)
+  const [folderToRename, setFolderToRename] = useState<Folder | null>(null)
+  const [newFolderNameInput, setNewFolderNameInput] = useState('')
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -57,40 +57,85 @@ export default function DashboardPage() {
     checkAuth()
   }, [router])
 
+  const formatDate = (dateString: string) => {
+    try {
+      const date = new Date(dateString)
+      if (isNaN(date.getTime())) {
+        return 'Date inconnue'
+      }
+      return date.toLocaleDateString('fr-FR', {
+        day: 'numeric',
+        month: 'long',
+        year: 'numeric'
+      })
+    } catch (error) {
+      console.error('Erreur de formatage de la date:', error)
+      return 'Date inconnue'
+    }
+  }
+
   const fetchFolders = async (userId: string) => {
     try {
-      // Récupérer les dossiers
+      console.log('Début du chargement des dossiers pour l\'utilisateur:', userId)
+
+      // Récupérer les dossiers avec une requête plus simple
       const { data: folders, error: foldersError } = await supabase
         .from('folders')
         .select('*')
         .eq('user_id', userId)
-        .order('created_at', { ascending: false })
 
-      if (foldersError) throw foldersError
+      if (foldersError) {
+        console.error('Erreur lors de la récupération des dossiers:', foldersError)
+        throw foldersError
+      }
 
-      // Pour chaque dossier, récupérer ses photos
+      console.log('Dossiers récupérés:', folders)
+
+      if (!folders || folders.length === 0) {
+        setFolders([])
+        setIsLoading(false)
+        return
+      }
+
+      // Pour chaque dossier, récupérer uniquement les 3 premières photos
       const foldersWithPhotos = await Promise.all(
         folders.map(async (folder) => {
-          const { data: photos, error: photosError } = await supabase
-            .from('photos')
-            .select('*')
-            .eq('folder_id', folder.id)
-            .order('uploaded_at', { ascending: false })
+          try {
+            console.log(`Chargement des photos pour le dossier ${folder.id}`)
 
-          if (photosError) throw photosError
+            // Récupérer les photos avec une requête plus simple
+            const { data: photos, error: photosError } = await supabase
+              .from('photos')
+              .select('*')
+              .eq('folder_id', folder.id)
+              .limit(3)
 
-          return {
-            ...folder,
-            photoCount: photos.length,
-            lastModified: new Date(folder.updated_at).toLocaleDateString(),
-            photos: photos.map(photo => ({
-              ...photo,
-              uploaded_at: new Date(photo.uploaded_at).toLocaleDateString()
-            }))
+            if (photosError) {
+              console.error(`Erreur lors du chargement des photos pour le dossier ${folder.id}:`, photosError)
+              throw photosError
+            }
+
+            console.log(`Photos récupérées pour le dossier ${folder.id}:`, photos)
+
+            return {
+              ...folder,
+              photoCount: photos?.length || 0,
+              lastModified: formatDate(folder.updated_at),
+              photos: photos || []
+            }
+          } catch (error) {
+            console.error(`Erreur lors du traitement du dossier ${folder.id}:`, error)
+            return {
+              ...folder,
+              photoCount: 0,
+              lastModified: formatDate(folder.updated_at),
+              photos: []
+            }
           }
         })
       )
 
+      console.log('Dossiers avec photos:', foldersWithPhotos)
       setFolders(foldersWithPhotos)
     } catch (error: any) {
       console.error('Erreur lors du chargement des dossiers:', error)
@@ -349,7 +394,6 @@ export default function DashboardPage() {
       setRenamingFolderName('')
     } catch (err) {
       setError('Erreur lors du renommage du dossier')
-      console.error(err)
     }
   }
 
@@ -384,306 +428,177 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gradient-to-br from-[#50AFC9]/10 to-[#3F8BA1]/10 p-4 md:p-8">
       <Navbar />
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="flex justify-between items-center mb-8">
-          <h1 className="text-3xl font-bold text-gray-900">Mes Dossiers</h1>
-          <button
-            onClick={() => setIsCreateModalOpen(true)}
-            className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-[#50AFC9] hover:bg-[#3F8BA1] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#50AFC9]"
-          >
-            <svg
-              className="-ml-1 mr-2 h-5 w-5"
-              xmlns="http://www.w3.org/2000/svg"
-              viewBox="0 0 20 20"
-              fill="currentColor"
-            >
-              <path
-                fillRule="evenodd"
-                d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z"
-                clipRule="evenodd"
-              />
-            </svg>
-            Nouveau dossier
-          </button>
+      <div className="container mx-auto px-4 py-8">
+        <div className="mb-8">
+          <h1 className="text-3xl font-bold text-gray-900">Mes dossiers</h1>
+          <p className="mt-2 text-gray-600">Gérez vos photos et dossiers</p>
         </div>
 
-        {/* Modal de création de dossier */}
-        {isCreateModalOpen && (
-          <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50">
-            <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
-              <h3 className="text-lg font-medium text-gray-900 mb-4">
-                Créer un nouveau dossier
-              </h3>
-              <div className="mb-4">
-                <label htmlFor="folder-name" className="block text-sm font-medium text-gray-700 mb-1">
-                  Nom du dossier
-                </label>
-                <input
-                  type="text"
-                  id="folder-name"
-                  value={newFolderName}
-                  onChange={(e) => setNewFolderName(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      handleCreateFolder()
-                    } else if (e.key === 'Escape') {
-                      setIsCreateModalOpen(false)
-                      setNewFolderName('')
-                    }
-                  }}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#50AFC9] focus:border-transparent"
-                  placeholder="Entrez le nom du dossier"
-                  autoFocus
-                />
+        {error && (
+          <div className="mb-4 rounded-md bg-red-50 p-4">
+            <div className="flex">
+              <div className="flex-shrink-0">
+                <svg className="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                </svg>
               </div>
-              <div className="flex justify-end space-x-4">
-                <button
-                  onClick={() => {
-                    setIsCreateModalOpen(false)
-                    setNewFolderName('')
-                  }}
-                  className="px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-500"
-                >
-                  Annuler
-                </button>
-                <button
-                  onClick={handleCreateFolder}
-                  disabled={!newFolderName.trim() || isCreating}
-                  className="px-4 py-2 bg-[#50AFC9] text-white rounded-md hover:bg-[#3F8BA1] focus:outline-none focus:ring-2 focus:ring-[#50AFC9] disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {isCreating ? (
-                    <div className="flex items-center">
-                      <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                      </svg>
-                      Création...
-                    </div>
-                  ) : (
-                    'Créer'
-                  )}
-                </button>
+              <div className="ml-3">
+                <h3 className="text-sm font-medium text-red-800">Erreur</h3>
+                <div className="mt-2 text-sm text-red-700">
+                  <p>{error}</p>
+                </div>
               </div>
             </div>
           </div>
         )}
 
+        <div className="mb-6 flex justify-between items-center">
+          <button
+            onClick={() => setIsCreateModalOpen(true)}
+            className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-[#50AFC9] hover:bg-[#3F8BA1] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#50AFC9]"
+          >
+            Nouveau dossier
+          </button>
+        </div>
+
         {isLoading ? (
-          <div className="text-center py-8">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto"></div>
-          </div>
-        ) : error ? (
-          <div className="text-center text-red-600 py-8">{error}</div>
-        ) : folders.length === 0 ? (
-          <div className="text-center py-12 bg-white rounded-lg shadow">
-            <svg
-              className="w-12 h-12 mx-auto text-gray-400 mb-4"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"
-              />
-            </svg>
-            <p className="text-lg font-medium text-gray-900 mb-2">
-              Aucun dossier
-            </p>
-            <p className="text-sm text-gray-500">
-              Créez votre premier dossier pour commencer
-            </p>
+          <div className="flex justify-center items-center h-64">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#50AFC9]"></div>
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {folders.map((folder) => (
               <div
                 key={folder.id}
-                className="bg-white rounded-lg shadow-sm hover:shadow-md transition-shadow cursor-pointer"
-                onClick={() => router.push(`/dashboard/${folder.id}`)}
+                className="bg-white rounded-lg shadow-lg overflow-hidden hover:shadow-xl transition-shadow duration-300"
               >
-                <div className="p-6">
-                  <div className="flex items-center justify-between mb-4">
-                    {renamingFolderId === folder.id ? (
-                      <div className="flex items-center space-x-2">
-                        <input
-                          type="text"
-                          value={renamingFolderName}
-                          onChange={(e) => setRenamingFolderName(e.target.value)}
-                          className="px-3 py-1 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#50AFC9]"
-                          autoFocus
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') handleRenameFolder(folder.id)
-                            if (e.key === 'Escape') {
-                              setRenamingFolderId(null)
-                              setRenamingFolderName('')
-                            }
-                          }}
-                          onClick={(e) => e.stopPropagation()}
-                        />
+                <div className="p-4">
+                  {renamingFolderId === folder.id ? (
+                    <input
+                      type="text"
+                      value={renamingFolderName}
+                      onChange={(e) => setRenamingFolderName(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          handleRenameFolder(folder.id)
+                        } else if (e.key === 'Escape') {
+                          setRenamingFolderId(null)
+                          setRenamingFolderName('')
+                        }
+                      }}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#50AFC9] focus:border-transparent bg-white text-gray-900"
+                      autoFocus
+                    />
+                  ) : (
+                    <div className="flex justify-between items-start">
+                      <h3 className="text-lg font-medium text-gray-900">{folder.name}</h3>
+                      <div className="flex space-x-2">
                         <button
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            handleRenameFolder(folder.id)
+                          onClick={() => {
+                            setRenamingFolderId(folder.id)
+                            setRenamingFolderName(folder.name)
                           }}
-                          className="text-green-600 hover:text-green-700"
+                          className="text-[#50AFC9] hover:text-[#3F8BA1]"
                         >
-                          <svg
-                            className="h-5 w-5"
-                            fill="none"
-                            stroke="currentColor"
-                            viewBox="0 0 24 24"
-                          >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              strokeWidth={2}
-                              d="M5 13l4 4L19 7"
-                            />
+                          <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
                           </svg>
                         </button>
                         <button
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            setRenamingFolderId(null)
-                            setRenamingFolderName('')
+                          onClick={() => {
+                            setFolderToDelete(folder)
+                            setIsDeleteModalOpen(true)
                           }}
-                          className="text-red-600 hover:text-red-700"
+                          className="text-red-600 hover:text-red-800"
                         >
-                          <svg
-                            className="h-5 w-5"
-                            fill="none"
-                            stroke="currentColor"
-                            viewBox="0 0 24 24"
-                          >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              strokeWidth={2}
-                              d="M6 18L18 6M6 6l12 12"
-                            />
+                          <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                           </svg>
                         </button>
                       </div>
-                    ) : (
-                      <div className="flex items-center space-x-2">
-                        <h2 className="text-lg font-medium text-gray-900">
-                          {folder.name}
-                        </h2>
-                        <div className="flex space-x-2">
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              setRenamingFolderId(folder.id)
-                              setRenamingFolderName(folder.name)
-                            }}
-                            className="text-gray-500 hover:text-gray-700"
-                            title="Renommer"
-                          >
-                            <svg
-                              className="h-5 w-5"
-                              fill="none"
-                              stroke="currentColor"
-                              viewBox="0 0 24 24"
-                            >
-                              <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                strokeWidth={2}
-                                d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
-                              />
-                            </svg>
-                          </button>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              setFolderToDelete(folder)
-                              setIsDeleteModalOpen(true)
-                            }}
-                            className="text-red-500 hover:text-red-700"
-                            title="Supprimer"
-                          >
-                            <svg
-                              className="h-5 w-5"
-                              fill="none"
-                              stroke="currentColor"
-                              viewBox="0 0 24 24"
-                            >
-                              <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                strokeWidth={2}
-                                d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                              />
-                            </svg>
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                    <span className="text-sm text-gray-500 bg-gray-100 px-2 py-1 rounded-full">
-                      {folder.photoCount} photos
-                    </span>
-                  </div>
-                  <div className="text-sm text-gray-500 mb-4">
-                    Dernière modification : {folder.lastModified}
-                  </div>
-                  {folder.photos.length > 0 && (
-                    <div className="grid grid-cols-3 gap-2">
-                      {folder.photos.slice(0, 3).map((photo) => (
-                        <div
-                          key={photo.id}
-                          className="aspect-square relative rounded overflow-hidden"
-                        >
-                          <img
-                            src={`data:${photo.mime_type};base64,${photo.image_data}`}
-                            alt={photo.name}
-                            className="object-cover w-full h-full"
-                          />
-                        </div>
-                      ))}
-                      {folder.photos.length > 3 && (
-                        <div className="aspect-square relative rounded overflow-hidden bg-gray-100 flex items-center justify-center">
-                          <span className="text-sm text-gray-500">
-                            +{folder.photos.length - 3}
-                          </span>
-                        </div>
-                      )}
                     </div>
                   )}
+                  <p className="mt-2 text-sm text-gray-500">
+                    {folder.photoCount} photo{folder.photoCount !== 1 ? 's' : ''}
+                  </p>
+                </div>
+                <div className="px-6 py-4 bg-gray-50">
+                  <button
+                    onClick={() => router.push(`/dashboard/${folder.id}`)}
+                    className="w-full inline-flex justify-center items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-[#50AFC9] hover:bg-[#3F8BA1] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#50AFC9] transition-colors duration-200"
+                  >
+                    Voir les photos
+                  </button>
                 </div>
               </div>
             ))}
           </div>
         )}
 
-        {/* Modal de confirmation de suppression */}
+        {isCreateModalOpen && (
+          <div className="fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center">
+            <div className="bg-white rounded-lg p-6 max-w-md w-full">
+              <h2 className="text-xl font-semibold text-gray-900 mb-4">Créer un nouveau dossier</h2>
+              <input
+                type="text"
+                value={newFolderName}
+                onChange={(e) => setNewFolderName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    handleCreateFolder()
+                  } else if (e.key === 'Escape') {
+                    setIsCreateModalOpen(false)
+                    setNewFolderName('')
+                  }
+                }}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#50AFC9] focus:border-transparent"
+                placeholder="Nom du dossier"
+                autoFocus
+              />
+              <div className="mt-4 flex justify-end space-x-3">
+                <button
+                  onClick={() => {
+                    setIsCreateModalOpen(false)
+                    setNewFolderName('')
+                  }}
+                  className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#50AFC9]"
+                >
+                  Annuler
+                </button>
+                <button
+                  onClick={handleCreateFolder}
+                  disabled={isCreating}
+                  className="px-4 py-2 text-sm font-medium text-white bg-[#50AFC9] rounded-md hover:bg-[#3F8BA1] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#50AFC9] disabled:opacity-50"
+                >
+                  {isCreating ? 'Création...' : 'Créer'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {isDeleteModalOpen && folderToDelete && (
-          <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50">
-            <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
-              <h3 className="text-lg font-medium text-gray-900 mb-4">
-                Confirmer la suppression
-              </h3>
-              <p className="text-gray-500 mb-6">
-                Êtes-vous sûr de vouloir supprimer le dossier "{folderToDelete.name}" ? 
-                Cette action supprimera également toutes les photos contenues dans le dossier et est irréversible.
+          <div className="fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center">
+            <div className="bg-white rounded-lg p-6 max-w-md w-full">
+              <h2 className="text-xl font-semibold text-gray-900 mb-4">Supprimer le dossier</h2>
+              <p className="text-gray-600 mb-4">
+                Êtes-vous sûr de vouloir supprimer le dossier "{folderToDelete.name}" ? Cette action est irréversible.
               </p>
-              <div className="flex justify-end space-x-4">
+              <div className="mt-4 flex justify-end space-x-3">
                 <button
                   onClick={() => {
                     setIsDeleteModalOpen(false)
                     setFolderToDelete(null)
                   }}
-                  className="px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-500"
+                  className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#50AFC9]"
                 >
                   Annuler
                 </button>
                 <button
                   onClick={handleDeleteFolder}
-                  className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500"
+                  className="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
                 >
                   Supprimer
                 </button>

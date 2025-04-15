@@ -1,230 +1,136 @@
 'use client'
 
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useState } from 'react'
+import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
-import { useEffect, useState } from 'react'
-import { motion } from 'framer-motion'
-import { Suspense } from 'react'
-import { signIn } from 'next-auth/react'
 
-function LoginForm() {
+export default function LoginPage() {
   const router = useRouter()
-  const searchParams = useSearchParams()
-  const [isLoading, setIsLoading] = useState(false)
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [success, setSuccess] = useState(false)
+  const [isLoading, setIsLoading] = useState(false)
 
-  useEffect(() => {
-    // Vérifier si l'utilisateur est déjà connecté
-    const checkUser = async () => {
-      const { data: { session } } = await supabase.auth.getSession()
-      if (session) {
-        router.push('/dashboard')
-      }
-    }
-    checkUser()
-  }, [router])
-
-  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsLoading(true)
     setError(null)
-
-    const formData = new FormData(e.currentTarget)
-    const email = formData.get('email') as string
-    const password = formData.get('password') as string
+    setSuccess(false)
 
     try {
-      console.log('Tentative de connexion...')
-      console.log('URL Supabase:', process.env.NEXT_PUBLIC_SUPABASE_URL)
-      console.log('Clé API:', process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.substring(0, 10) + '...')
-
-      // Vérifier la connexion à Supabase
-      const { data: { session: currentSession } } = await supabase.auth.getSession()
-      if (currentSession) {
-        console.log('Session existante trouvée, déconnexion...')
-        await supabase.auth.signOut()
-      }
-
-      // Tenter la connexion
-      console.log('Tentative de connexion avec:', email)
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password,
       })
 
       if (error) {
-        console.error('Erreur de connexion détaillée:', error)
-        throw error
+        if (error.message.includes('Email not confirmed')) {
+          setError('Votre email n\'a pas été confirmé. Veuillez vérifier votre boîte de réception.')
+        } else if (error.message.includes('Invalid login credentials')) {
+          setError('Email ou mot de passe incorrect. Si vous avez demandé une réinitialisation de mot de passe, veuillez utiliser le lien envoyé par email.')
+        } else {
+          throw error
+        }
+        return
       }
 
-      console.log('Connexion réussie:', data.user?.id)
+      if (data?.user) {
+        // Récupérer le rôle de l'utilisateur
+        const { data: userData, error: userError } = await supabase
+          .from('users')
+          .select('role')
+          .eq('id', data.user.id)
+          .single()
 
-      // Récupérer les informations de l'utilisateur
-      const { data: userData, error: userError } = await supabase
-        .from('users')
-        .select('role, name')
-        .eq('id', data.user.id)
-        .single()
+        if (userError) throw userError
 
-      if (userError) {
-        console.error('Erreur lors de la récupération des données utilisateur:', userError)
-        throw userError
+        setSuccess(true)
+        // Rediriger en fonction du rôle
+        const redirectPath = userData.role === 'admin' ? '/admin/users' : '/dashboard'
+        router.push(redirectPath)
       }
-
-      console.log('Données utilisateur récupérées:', userData)
-
-      // Stocker les informations de l'utilisateur
-      localStorage.setItem('isAuthenticated', 'true')
-      localStorage.setItem('userRole', userData.role)
-      localStorage.setItem('userName', userData.name)
-
-      // Rediriger vers le dashboard approprié
-      const redirectTo = userData.role === 'admin' ? '/admin/dashboard' : '/dashboard'
-      console.log('Redirection vers:', redirectTo)
-      router.push(redirectTo)
     } catch (error: any) {
       console.error('Erreur de connexion:', error)
-      if (error.message.includes('Failed to fetch')) {
-        setError('Impossible de se connecter au serveur. Vérifiez votre connexion internet.')
-      } else if (error.message === 'Email not confirmed') {
-        setError('Veuillez confirmer votre email avant de vous connecter. Vérifiez votre boîte de réception.')
-      } else {
-        setError('Email ou mot de passe incorrect')
-      }
+      setError(error.message || 'Une erreur est survenue lors de la connexion')
     } finally {
       setIsLoading(false)
     }
   }
 
   return (
-    <div className="sm:mx-auto sm:w-full sm:max-w-md">
-      <h2 className="text-center text-3xl font-extrabold text-gray-900">
-        Connexion à votre compte
-      </h2>
-      <p className="mt-2 text-center text-sm text-gray-600">
-        Ou{' '}
-        <Link href="/auth/register" className="font-medium text-blue-600 hover:text-blue-500">
-          créez un compte
-        </Link>
-      </p>
-
-      <div className="mt-4">
-        <div className="bg-white py-6 px-4 shadow-2xl sm:rounded-lg sm:px-10">
-          {searchParams.get('registered') && (
-            <div className="mb-4 rounded-md bg-green-50 p-4">
-              <div className="flex">
-                <div className="flex-shrink-0">
-                  <svg className="h-5 w-5 text-green-400" viewBox="0 0 20 20" fill="currentColor">
-                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                  </svg>
-                </div>
-                <div className="ml-3">
-                  <p className="text-sm font-medium text-green-800">
-                    Compte créé avec succès ! Vous pouvez maintenant vous connecter.
-                  </p>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {searchParams.get('emailConfirmed') && (
-            <div className="mb-4 rounded-md bg-green-50 p-4">
-              <div className="flex">
-                <div className="flex-shrink-0">
-                  <svg className="h-5 w-5 text-green-400" viewBox="0 0 20 20" fill="currentColor">
-                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                  </svg>
-                </div>
-                <div className="ml-3">
-                  <p className="text-sm font-medium text-green-800">
-                    Votre email a été confirmé avec succès ! Vous pouvez maintenant vous connecter.
-                  </p>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {searchParams.get('error') === 'confirmation_failed' && (
-            <div className="mb-4 rounded-md bg-red-50 p-4">
-              <div className="flex">
-                <div className="flex-shrink-0">
-                  <svg className="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
-                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-                  </svg>
-                </div>
-                <div className="ml-3">
-                  <p className="text-sm font-medium text-red-800">
-                    La confirmation de votre email a échoué. Le lien est peut-être expiré. Veuillez réessayer de vous inscrire.
-                  </p>
-                </div>
-              </div>
-            </div>
-          )}
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[#50AFC9]/10 to-[#3F8BA1]/10 py-12 px-4 sm:px-6 lg:px-8">
+      <div className="max-w-md w-full space-y-8">
+        <div className="bg-white p-8 rounded-2xl shadow-xl transform transition-all duration-300 hover:shadow-2xl">
+          <div className="text-center mb-8">
+            <h2 className="text-4xl font-bold text-gray-900 mb-2">
+              Connexion
+            </h2>
+            <p className="text-gray-600">
+              Connectez-vous à votre compte
+            </p>
+          </div>
 
           {error && (
-            <div className="mb-4 rounded-md bg-red-50 p-4">
-              <div className="flex">
-                <div className="flex-shrink-0">
-                  <svg className="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
-                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-                  </svg>
-                </div>
-                <div className="ml-3">
-                  <p className="text-sm font-medium text-red-800">{error}</p>
-                </div>
+            <div className="mb-4 rounded-lg bg-red-50 p-4 border border-red-200">
+              <div className="flex items-center">
+                <svg className="h-5 w-5 text-red-400 mr-3" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                </svg>
+                <p className="text-sm font-medium text-red-800">{error}</p>
               </div>
             </div>
           )}
 
-          <form className="space-y-4" onSubmit={handleSubmit}>
+          {success && (
+            <div className="mb-4 rounded-lg bg-green-50 p-4 border border-green-200">
+              <div className="flex items-center">
+                <svg className="h-5 w-5 text-green-400 mr-3" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                </svg>
+                <p className="text-sm font-medium text-green-800">
+                  Connexion réussie ! Redirection en cours...
+                </p>
+              </div>
+            </div>
+          )}
+
+          <form className="space-y-6" onSubmit={handleSubmit}>
             <div>
               <label htmlFor="email" className="block text-sm font-medium text-gray-700">
-                Adresse email
+                Email
               </label>
-              <div className="mt-1">
-                <input
-                  id="email"
-                  name="email"
-                  type="email"
-                  autoComplete="email"
-                  required
-                  className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm text-gray-900"
-                />
-              </div>
+              <input
+                type="email"
+                id="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-[#50AFC9] focus:border-transparent bg-white text-gray-900"
+                required
+              />
             </div>
 
             <div>
               <label htmlFor="password" className="block text-sm font-medium text-gray-700">
                 Mot de passe
               </label>
-              <div className="mt-1">
-                <input
-                  id="password"
-                  name="password"
-                  type="password"
-                  autoComplete="current-password"
-                  required
-                  className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm text-gray-900"
-                />
-              </div>
+              <input
+                type="password"
+                id="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-[#50AFC9] focus:border-transparent bg-white text-gray-900"
+                required
+              />
             </div>
 
             <div className="flex items-center justify-between">
-              <div className="flex items-center">
-                <input
-                  id="remember-me"
-                  name="remember-me"
-                  type="checkbox"
-                  className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-                />
-                <label htmlFor="remember-me" className="ml-2 block text-sm text-gray-900">
-                  Se souvenir de moi
-                </label>
-              </div>
-
               <div className="text-sm">
-                <Link href="/auth/forgot-password" className="font-medium text-blue-600 hover:text-blue-500">
+                <Link
+                  href="/auth/forgot-password"
+                  className="text-[#50AFC9] hover:text-[#3F8BA1] font-medium transition duration-200"
+                >
                   Mot de passe oublié ?
                 </Link>
               </div>
@@ -234,25 +140,35 @@ function LoginForm() {
               <button
                 type="submit"
                 disabled={isLoading}
-                className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-[#50AFC9] hover:bg-[#3F8BA1] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#50AFC9] disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-full py-3 px-4 bg-[#50AFC9] hover:bg-[#3F8BA1] text-white font-medium rounded-lg shadow-md hover:shadow-lg transform transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#50AFC9] disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {isLoading ? 'Connexion en cours...' : 'Se connecter'}
+                {isLoading ? (
+                  <span className="flex items-center justify-center">
+                    <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    Connexion en cours...
+                  </span>
+                ) : (
+                  'Se connecter'
+                )}
               </button>
+            </div>
+
+            <div className="text-center">
+              <p className="text-sm text-gray-600">
+                Pas encore de compte ?{' '}
+                <Link
+                  href="/auth/register"
+                  className="text-[#50AFC9] hover:text-[#3F8BA1] font-medium transition duration-200"
+                >
+                  S'inscrire
+                </Link>
+              </p>
             </div>
           </form>
         </div>
-      </div>
-    </div>
-  )
-}
-
-export default function LoginPage() {
-  return (
-    <div className="min-h-screen bg-white flex items-center justify-center">
-      <div className="max-w-md w-full space-y-8">
-        <Suspense fallback={<div>Chargement...</div>}>
-          <LoginForm />
-        </Suspense>
       </div>
     </div>
   )

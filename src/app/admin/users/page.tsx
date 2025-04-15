@@ -48,9 +48,12 @@ export default function AdminUsersPage() {
   const usersPerPage = 10
   const [selectedPhoto, setSelectedPhoto] = useState<Photo | null>(null)
   const [isPreviewOpen, setIsPreviewOpen] = useState(false)
+  const [isAuthChecked, setIsAuthChecked] = useState(false)
 
   useEffect(() => {
     const checkAuth = async () => {
+      if (isAuthChecked) return
+
       const { data: { session } } = await supabase.auth.getSession()
       if (!session) {
         router.push('/auth/login')
@@ -68,10 +71,11 @@ export default function AdminUsersPage() {
         return
       }
 
+      setIsAuthChecked(true)
       fetchUsers()
     }
     checkAuth()
-  }, [router])
+  }, [isAuthChecked])
 
   const fetchUsers = async () => {
     try {
@@ -105,7 +109,12 @@ export default function AdminUsersPage() {
             ...folder,
             photoCount: photosData.filter(photo => photo.folder_id === folder.id).length,
             lastModified: new Date(folder.updated_at).toLocaleDateString(),
-            photos: photosData.filter(photo => photo.folder_id === folder.id)
+            photos: photosData
+              .filter(photo => photo.folder_id === folder.id)
+              .map(photo => ({
+                ...photo,
+                uploaded_at: new Date(photo.uploaded_at).toLocaleDateString()
+              }))
           }))
       }))
 
