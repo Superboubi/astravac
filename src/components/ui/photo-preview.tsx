@@ -98,7 +98,7 @@ export function PhotoPreview({ photo, onClose }: PhotoPreviewProps) {
         <div className="p-4 bg-white">
           <h3 className="text-lg font-medium text-gray-900">{photo.name}</h3>
           <p className="text-sm text-gray-500 mt-1">
-            Ajoutée le {formatDate(photo.created_at)}
+            Ajoutée le {formatDate(photo.uploaded_at)}
           </p>
         </div>
       </div>
