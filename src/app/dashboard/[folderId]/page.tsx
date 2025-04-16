@@ -49,7 +49,9 @@ export default function FolderPage({ params }: { params: { folderId: string } })
   useEffect(() => {
     const fetchFolder = async () => {
       try {
-        // 1. Récupérer le dossier
+        setIsLoading(true)
+        setError(null)
+
         const { data: folderData, error: folderError } = await supabase
           .from('folders')
           .select('*')
@@ -58,38 +60,29 @@ export default function FolderPage({ params }: { params: { folderId: string } })
 
         if (folderError) throw folderError
 
-        // 2. Récupérer les photos du dossier
         const { data: photosData, error: photosError } = await supabase
           .from('photos')
           .select('*')
           .eq('folder_id', params.folderId)
           .order('uploaded_at', { ascending: false })
+          .range((currentPage - 1) * photosPerPage, currentPage * photosPerPage - 1)
 
         if (photosError) throw photosError
 
         setFolder({
-          id: folderData.id,
-          name: folderData.name,
-          photos: photosData.map(photo => ({
-            id: photo.id,
-            name: photo.name,
-            url: photo.url,
-            size: photo.size,
-            uploaded_at: photo.uploaded_at,
-            folder_id: photo.folder_id,
-            user_id: photo.user_id
-          }))
+          ...folderData,
+          photos: photosData || []
         })
-      } catch (err) {
+      } catch (error: any) {
+        console.error('Erreur lors du chargement du dossier:', error)
         setError('Erreur lors du chargement du dossier')
-        console.error(err)
       } finally {
         setIsLoading(false)
       }
     }
 
     fetchFolder()
-  }, [params.folderId])
+  }, [params.folderId, currentPage])
 
   const handleDragEnter = (e: React.DragEvent) => {
     e.preventDefault()
@@ -152,9 +145,12 @@ export default function FolderPage({ params }: { params: { folderId: string } })
             return
           }
 
+          // Utiliser une meilleure qualité de rendu
+          ctx.imageSmoothingEnabled = true
+          ctx.imageSmoothingQuality = 'high'
           ctx.drawImage(img, 0, 0, width, height)
 
-          // Convertir en JPEG avec une qualité de 0.7
+          // Convertir en JPEG avec une qualité de 0.8
           canvas.toBlob(
             (blob) => {
               if (!blob) {
@@ -168,7 +164,7 @@ export default function FolderPage({ params }: { params: { folderId: string } })
               resolve(compressedFile)
             },
             'image/jpeg',
-            0.7
+            0.8
           )
         }
         img.onerror = () => reject(new Error('Erreur lors du chargement de l\'image'))
@@ -744,7 +740,7 @@ export default function FolderPage({ params }: { params: { folderId: string } })
                         sizes="(max-width: 640px) 100vw, (max-width: 768px) 50vw, (max-width: 1024px) 33vw, 25vw"
                         className="object-cover"
                         loading="lazy"
-                        quality={75}
+                        quality={80}
                       />
                       <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-20 transition-opacity duration-300 flex items-center justify-center opacity-0 group-hover:opacity-100">
                         <div className="flex space-x-2">
