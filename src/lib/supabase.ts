@@ -7,12 +7,8 @@ const corsHeaders = {
   'Access-Control-Allow-Methods': 'POST, GET, PUT, DELETE, OPTIONS'
 }
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-
-if (!supabaseUrl || !supabaseKey) {
-  throw new Error('Les variables d\'environnement Supabase ne sont pas définies')
-}
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 
 // Vérifier que l'URL est accessible
 const checkSupabaseUrl = async () => {
@@ -109,7 +105,7 @@ export type Database = {
           size: number
           folder_id: string
           user_id: string
-          image_data: string
+          url: string
           mime_type: string
           uploaded_at: string
         }
@@ -119,7 +115,7 @@ export type Database = {
           size: number
           folder_id: string
           user_id: string
-          image_data: string
+          url: string
           mime_type: string
           uploaded_at?: string
         }
@@ -129,7 +125,7 @@ export type Database = {
           size?: number
           folder_id?: string
           user_id?: string
-          image_data?: string
+          url?: string
           mime_type?: string
           uploaded_at?: string
         }
@@ -143,9 +139,8 @@ export interface Photo {
   name: string
   url: string
   folder_id: string
-  created_at: string
   user_id: string
   mime_type: string
-  image_data: string
   size: number
+  uploaded_at: string
 } 

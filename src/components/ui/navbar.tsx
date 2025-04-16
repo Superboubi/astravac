@@ -16,19 +16,36 @@ export function Navbar() {
       const { data: { session } } = await supabase.auth.getSession()
       if (!session) return
 
-      const { data: userData, error } = await supabase
-        .from('users')
-        .select('name, role')
-        .eq('id', session.user.id)
-        .single()
+      try {
+        // Récupérer le rôle depuis le localStorage
+        const userRole = localStorage.getItem('userRole')
+        const userId = localStorage.getItem('userId')
 
-      if (error) {
-        console.error('Erreur lors de la récupération des données utilisateur:', error)
-        return
+        if (userRole && userId === session.user.id) {
+          setUserName(session.user.email || 'Utilisateur')
+          setIsAdmin(userRole === 'admin')
+          return
+        }
+
+        // Si le rôle n'est pas dans le localStorage, le récupérer depuis la base de données
+        const { data: users, error } = await supabase
+          .from('users')
+          .select('*')
+          .eq('id', session.user.id)
+
+        if (error || !users || users.length === 0) {
+          console.error('Erreur lors de la vérification du rôle:', error)
+          return
+        }
+
+        const userData = users[0]
+        setUserName(userData.name || session.user.email || 'Utilisateur')
+        setIsAdmin(userData.role === 'admin')
+        localStorage.setItem('userRole', userData.role)
+        localStorage.setItem('userId', session.user.id)
+      } catch (error) {
+        console.error('Erreur lors de la vérification du rôle:', error)
       }
-
-      setUserName(userData.name)
-      setIsAdmin(userData.role === 'admin')
     }
     checkUser()
   }, [])
@@ -49,8 +66,8 @@ export function Navbar() {
   }
 
   return (
-    <nav className="bg-white shadow-md">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <nav className="bg-white shadow-lg rounded-2xl mx-2">
+      <div className="max-w-7xl mx-auto px-1 sm:px-3 lg:px-4">
         <div className="flex justify-between h-16">
           <div className="flex">
             <div className="flex-shrink-0 flex items-center">
@@ -58,13 +75,13 @@ export function Navbar() {
                 PhotoApp
               </Link>
             </div>
-            <div className="hidden sm:ml-6 sm:flex sm:space-x-8">
+            <div className="hidden sm:ml-3 sm:flex sm:space-x-3">
               <Link
                 href="/dashboard"
-                className={`inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium ${
+                className={`inline-flex items-center px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
                   pathname === '/dashboard'
-                    ? 'border-[#50AFC9] text-gray-900'
-                    : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
+                    ? 'text-[#50AFC9] font-semibold'
+                    : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
                 }`}
               >
                 Tableau de bord
@@ -72,10 +89,10 @@ export function Navbar() {
               {isAdmin && (
                 <Link
                   href="/admin"
-                  className={`inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium ${
+                  className={`inline-flex items-center px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
                     pathname === '/admin'
-                      ? 'border-[#50AFC9] text-gray-900'
-                      : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
+                      ? 'text-[#50AFC9] font-semibold'
+                      : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
                   }`}
                 >
                   Administration
@@ -84,9 +101,9 @@ export function Navbar() {
             </div>
           </div>
 
-          <div className="hidden sm:ml-6 sm:flex sm:items-center">
+          <div className="hidden sm:ml-3 sm:flex sm:items-center">
             <div className="ml-3 relative">
-              <div className="flex items-center space-x-4">
+              <div className="flex items-center space-x-3">
                 <span className="text-gray-700">{userName}</span>
                 <button
                   onClick={handleLogout}
@@ -102,7 +119,7 @@ export function Navbar() {
           <div className="flex items-center sm:hidden">
             <button
               onClick={() => setIsMenuOpen(!isMenuOpen)}
-              className="inline-flex items-center justify-center p-2 rounded-md text-gray-400 hover:text-gray-500 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-500"
+              className="inline-flex items-center justify-center p-2 rounded-lg text-gray-400 hover:text-gray-500 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-[#50AFC9] transition-colors"
             >
               <span className="sr-only">Ouvrir le menu</span>
               {!isMenuOpen ? (
@@ -147,10 +164,10 @@ export function Navbar() {
           <div className="pt-2 pb-3 space-y-1">
             <Link
               href="/dashboard"
-              className={`block pl-3 pr-4 py-2 border-l-4 text-base font-medium ${
+              className={`block pl-3 pr-4 py-2 rounded-lg text-base font-medium transition-colors ${
                 pathname === '/dashboard'
-                  ? 'bg-blue-50 border-blue-500 text-blue-700'
-                  : 'border-transparent text-gray-500 hover:bg-gray-50 hover:border-gray-300 hover:text-gray-700'
+                  ? 'text-[#50AFC9] font-semibold'
+                  : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
               }`}
             >
               Tableau de bord
@@ -158,10 +175,10 @@ export function Navbar() {
             {isAdmin && (
               <Link
                 href="/admin"
-                className={`block pl-3 pr-4 py-2 border-l-4 text-base font-medium ${
+                className={`block pl-3 pr-4 py-2 rounded-lg text-base font-medium transition-colors ${
                   pathname === '/admin'
-                    ? 'bg-blue-50 border-blue-500 text-blue-700'
-                    : 'border-transparent text-gray-500 hover:bg-gray-50 hover:border-gray-300 hover:text-gray-700'
+                    ? 'text-[#50AFC9] font-semibold'
+                    : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
                 }`}
               >
                 Administration

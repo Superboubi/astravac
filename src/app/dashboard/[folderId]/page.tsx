@@ -9,6 +9,7 @@ import { supabase } from '@/lib/supabase'
 import { Photo } from '@/types'
 import { PhotoPreviewProps } from '@/types/photo-preview'
 import Image from 'next/image'
+import { Session } from '@supabase/supabase-js'
 
 interface Folder {
   id: string
@@ -28,38 +29,55 @@ export default function FolderPage({ params }: { params: { folderId: string } })
   const [selectedPhoto, setSelectedPhoto] = useState<Photo | null>(null)
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false)
   const [photoToDelete, setPhotoToDelete] = useState<string | null>(null)
-  const [uploadProgress, setUploadProgress] = useState<{ [key: string]: number }>({})
+  const [uploadProgress, setUploadProgress] = useState<Record<string, number>>({})
   const [uploadingFiles, setUploadingFiles] = useState<string[]>([])
   const [currentPage, setCurrentPage] = useState(1)
   const photosPerPage = 12
   const [isLoadingMore, setIsLoadingMore] = useState(false)
   const [isSelectionMode, setIsSelectionMode] = useState(false)
   const [editingPhoto, setEditingPhoto] = useState<{ id: string; name: string } | null>(null)
+  const [session, setSession] = useState<Session | null>(null)
+
+  useEffect(() => {
+    const getSession = async () => {
+      const { data: { session } } = await supabase.auth.getSession()
+      setSession(session)
+    }
+    getSession()
+  }, [])
 
   useEffect(() => {
     const fetchFolder = async () => {
       try {
+        // 1. Récupérer le dossier
         const { data: folderData, error: folderError } = await supabase
           .from('folders')
-          .select('*, photos(*)')
+          .select('*')
           .eq('id', params.folderId)
           .single()
 
         if (folderError) throw folderError
 
+        // 2. Récupérer les photos du dossier
+        const { data: photosData, error: photosError } = await supabase
+          .from('photos')
+          .select('*')
+          .eq('folder_id', params.folderId)
+          .order('uploaded_at', { ascending: false })
+
+        if (photosError) throw photosError
+
         setFolder({
           id: folderData.id,
           name: folderData.name,
-          photos: folderData.photos.map((photoData: any) => ({
-            id: photoData.id,
-            name: photoData.name,
-            mime_type: photoData.mime_type,
-            image_data: photoData.image_data,
-            created_at: photoData.created_at,
-            size: photoData.size,
-            url: `data:${photoData.mime_type};base64,${photoData.image_data}`,
-            folder_id: photoData.folder_id,
-            user_id: photoData.user_id
+          photos: photosData.map(photo => ({
+            id: photo.id,
+            name: photo.name,
+            url: photo.url,
+            size: photo.size,
+            uploaded_at: photo.uploaded_at,
+            folder_id: photo.folder_id,
+            user_id: photo.user_id
           }))
         })
       } catch (err) {
@@ -160,80 +178,78 @@ export default function FolderPage({ params }: { params: { folderId: string } })
   }
 
   const handleFileUpload = async (file: File) => {
+    if (!session?.user?.id) {
+      console.error('Utilisateur non connecté')
+      return
+    }
+
     try {
-      setUploadingFiles(prev => [...prev, file.name])
-      setUploadProgress(prev => ({ ...prev, [file.name]: 0 }))
-
-      const session = await supabase.auth.getSession()
-      const userId = session.data.session?.user.id
-
-      if (!userId) {
-        throw new Error('Utilisateur non connecté')
-      }
-
-      if (!file.type.startsWith('image/')) {
-        throw new Error('Seuls les fichiers image sont acceptés')
-      }
+      const userId = session.user.id
+      const timestamp = new Date().getTime()
+      const randomString = Math.random().toString(36).substring(2, 15)
+      const uniqueFileName = `${userId}/${params.folderId}/${timestamp}-${randomString}-${file.name}`
 
       // Compression de l'image
-      const compressedFile = await compressImage(file)
-      
-      if (compressedFile.size > 5 * 1024 * 1024) {
-        throw new Error('La taille maximale du fichier est de 5MB')
+      const compressedImage = await compressImage(file)
+      if (!compressedImage) {
+        throw new Error('Erreur lors de la compression de l\'image')
       }
 
-      const reader = new FileReader()
-      reader.readAsDataURL(compressedFile)
-      reader.onload = async () => {
-        const base64Data = reader.result as string
-        const base64Content = base64Data.split(',')[1]
+      // Vérification des permissions du bucket
+      const { data: bucketData, error: bucketError } = await supabase
+        .storage
+        .from('photos')
+        .list(userId)
 
-        const { data: photoData, error: insertError } = await supabase
-          .from('photos')
-          .insert({
-            name: file.name,
-            mime_type: 'image/jpeg',
-            image_data: base64Content,
-            folder_id: params.folderId,
-            user_id: userId,
-            size: compressedFile.size
-          })
-          .select()
-          .single()
+      if (bucketError && bucketError.message !== 'The resource was not found') {
+        throw bucketError
+      }
 
-        if (insertError) throw insertError
+      // Upload de l'image compressée avec cache optimisé
+      const { data: uploadData, error: uploadError } = await supabase.storage
+        .from('photos')
+        .upload(uniqueFileName, compressedImage, {
+          cacheControl: '31536000',
+          upsert: false
+        })
 
-        if (photoData) {
-          // Création de l'objet photo optimisé
-          const newPhoto = {
-            id: photoData.id,
-            name: photoData.name,
-            mime_type: photoData.mime_type,
-            image_data: photoData.image_data,
-            created_at: photoData.created_at,
-            size: photoData.size,
-            url: `data:${photoData.mime_type};base64,${photoData.image_data}`,
-            folder_id: photoData.folder_id,
-            user_id: photoData.user_id
+      if (uploadError) throw uploadError
+
+      // Récupération de l'URL publique
+      const { data: { publicUrl } } = supabase.storage
+        .from('photos')
+        .getPublicUrl(uniqueFileName)
+
+      // Insertion dans la base de données
+      const { data: photoData, error: insertError } = await supabase
+        .from('photos')
+        .insert({
+          name: file.name,
+          url: publicUrl,
+          size: compressedImage.size,
+          folder_id: params.folderId,
+          user_id: userId,
+          uploaded_at: new Date().toISOString()
+        })
+        .select()
+        .single()
+
+      if (insertError) throw insertError
+
+      if (photoData) {
+        setFolder((prev) => {
+          if (!prev) return null
+          const sortedPhotos = [...prev.photos, photoData].sort(
+            (a, b) => new Date(b.uploaded_at).getTime() - new Date(a.uploaded_at).getTime()
+          )
+          return {
+            ...prev,
+            photos: sortedPhotos,
           }
-
-          // Mise à jour optimisée de l'état
-          setFolder(prev => {
-            if (!prev) return null
-            return {
-              ...prev,
-              photos: [newPhoto, ...prev.photos] // Ajout au début pour une meilleure performance
-            }
-          })
-
-          setUploadProgress(prev => ({ ...prev, [file.name]: 100 }))
-          setUploadingFiles(prev => prev.filter(name => name !== file.name))
-        }
+        })
       }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erreur lors de l\'ajout de la photo')
-      console.error(err)
-      setUploadingFiles(prev => prev.filter(name => name !== file.name))
+    } catch (error) {
+      console.error('Erreur lors de l\'upload:', error)
     }
   }
 
@@ -280,20 +296,48 @@ export default function FolderPage({ params }: { params: { folderId: string } })
 
   const handleDeletePhoto = async (photoId: string) => {
     try {
-      const { error } = await supabase
+      // Récupérer d'abord les informations de la photo
+      const { data: photoData, error: fetchError } = await supabase
         .from('photos')
-        .delete()
+        .select('*')
         .eq('id', photoId)
+        .single()
 
-      if (error) throw error
+      if (fetchError) throw fetchError
 
-      setFolder((prev) => {
-        if (!prev) return null
-        return {
-          ...prev,
-          photos: prev.photos.filter((photo) => photo.id !== photoId),
+      if (photoData) {
+        // Extraire le chemin du fichier de l'URL
+        const fileUrl = new URL(photoData.url)
+        const filePath = fileUrl.pathname.split('/photos/')[1]
+
+        // Supprimer le fichier du bucket
+        const { error: storageError } = await supabase.storage
+          .from('photos')
+          .remove([filePath])
+
+        if (storageError) {
+          console.error('Erreur lors de la suppression du fichier:', storageError)
         }
-      })
+
+        // Supprimer l'entrée de la base de données
+        const { error: dbError } = await supabase
+          .from('photos')
+          .delete()
+          .eq('id', photoId)
+
+        if (dbError) throw dbError
+
+        setFolder((prev) => {
+          if (!prev) return null
+          const sortedPhotos = [...prev.photos]
+            .filter(p => p.id !== photoId)
+            .sort((a, b) => new Date(b.uploaded_at).getTime() - new Date(a.uploaded_at).getTime())
+          return {
+            ...prev,
+            photos: sortedPhotos,
+          }
+        })
+      }
     } catch (error) {
       console.error('Erreur lors de la suppression:', error)
     } finally {
@@ -315,21 +359,46 @@ export default function FolderPage({ params }: { params: { folderId: string } })
     if (selectedPhotos.length === 0) return
 
     try {
-      const { error } = await supabase
+      // Récupérer les informations des photos sélectionnées
+      const { data: photosData, error: fetchError } = await supabase
         .from('photos')
-        .delete()
+        .select('*')
         .in('id', selectedPhotos)
 
-      if (error) throw error
+      if (fetchError) throw fetchError
 
-      setFolder((prev) => {
-        if (!prev) return null
-        return {
-          ...prev,
-          photos: prev.photos.filter((photo) => !selectedPhotos.includes(photo.id)),
+      if (photosData) {
+        // Supprimer les fichiers du bucket
+        const filePaths = photosData.map(photo => {
+          const fileUrl = new URL(photo.url)
+          return fileUrl.pathname.split('/photos/')[1]
+        })
+
+        const { error: storageError } = await supabase.storage
+          .from('photos')
+          .remove(filePaths)
+
+        if (storageError) {
+          console.error('Erreur lors de la suppression des fichiers:', storageError)
         }
-      })
-      setSelectedPhotos([])
+
+        // Supprimer les entrées de la base de données
+        const { error: dbError } = await supabase
+          .from('photos')
+          .delete()
+          .in('id', selectedPhotos)
+
+        if (dbError) throw dbError
+
+        setFolder((prev) => {
+          if (!prev) return null
+          return {
+            ...prev,
+            photos: prev.photos.filter((photo) => !selectedPhotos.includes(photo.id)),
+          }
+        })
+        setSelectedPhotos([])
+      }
     } catch (error) {
       console.error('Erreur lors de la suppression:', error)
     }
@@ -806,7 +875,7 @@ export default function FolderPage({ params }: { params: { folderId: string } })
                         <>
                           <h3 className="text-sm font-medium text-gray-900 truncate">{photo.name}</h3>
                           <p className="text-xs text-gray-500">
-                            Ajoutée le {new Date(photo.created_at).toLocaleDateString('fr-FR', {
+                            Ajoutée le {new Date(photo.uploaded_at).toLocaleDateString('fr-FR', {
                               year: 'numeric',
                               month: 'long',
                               day: 'numeric'
@@ -1020,7 +1089,7 @@ export default function FolderPage({ params }: { params: { folderId: string } })
                   )}
                 </div>
                 <p className="text-sm text-gray-500 mt-1">
-                  Ajoutée le {new Date(selectedPhoto.created_at).toLocaleDateString('fr-FR', {
+                  Ajoutée le {new Date(selectedPhoto.uploaded_at).toLocaleDateString('fr-FR', {
                     year: 'numeric',
                     month: 'long',
                     day: 'numeric'

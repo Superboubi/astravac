@@ -10,14 +10,40 @@ export default function LoginPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
-  const [success, setSuccess] = useState(false)
+  const [success, setSuccess] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
+  const [isResending, setIsResending] = useState(false)
+
+  const handleResendVerification = async () => {
+    setIsResending(true)
+    setError(null)
+    setSuccess(null)
+
+    try {
+      const { error } = await supabase.auth.resend({
+        type: 'signup',
+        email,
+      })
+
+      if (error) {
+        setError('Erreur lors de l\'envoi de l\'email de vérification')
+        console.error('Erreur:', error)
+      } else {
+        setSuccess('Un nouvel email de vérification a été envoyé')
+      }
+    } catch (error) {
+      setError('Une erreur est survenue')
+      console.error('Erreur:', error)
+    } finally {
+      setIsResending(false)
+    }
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    setIsLoading(true)
     setError(null)
-    setSuccess(false)
+    setSuccess(null)
+    setIsLoading(true)
 
     try {
       const { data, error } = await supabase.auth.signInWithPassword({
@@ -27,33 +53,50 @@ export default function LoginPage() {
 
       if (error) {
         if (error.message.includes('Email not confirmed')) {
-          setError('Votre email n\'a pas été confirmé. Veuillez vérifier votre boîte de réception.')
-        } else if (error.message.includes('Invalid login credentials')) {
-          setError('Email ou mot de passe incorrect. Si vous avez demandé une réinitialisation de mot de passe, veuillez utiliser le lien envoyé par email.')
+          setError('Veuillez vérifier votre email pour confirmer votre compte')
         } else {
-          throw error
+          setError('Email ou mot de passe incorrect')
         }
+        setIsLoading(false)
         return
       }
 
       if (data?.user) {
+        console.log('Utilisateur connecté:', data.user.id)
+        
         // Récupérer le rôle de l'utilisateur
-        const { data: userData, error: userError } = await supabase
+        const { data: users, error: userError } = await supabase
           .from('users')
           .select('role')
           .eq('id', data.user.id)
-          .single()
 
-        if (userError) throw userError
+        if (userError || !users || users.length === 0) {
+          console.error('Erreur lors de la récupération du rôle:', userError)
+          // Par défaut, on considère que c'est un utilisateur normal
+          localStorage.setItem('userRole', 'user')
+          router.push('/dashboard')
+          return
+        }
 
-        setSuccess(true)
+        const userRole = users[0].role
+        console.log('Rôle de l\'utilisateur:', userRole)
+        
+        // Stocker le rôle dans le localStorage
+        localStorage.setItem('userRole', userRole)
+        localStorage.setItem('userId', data.user.id)
+
         // Rediriger en fonction du rôle
-        const redirectPath = userData.role === 'admin' ? '/admin/users' : '/dashboard'
-        router.push(redirectPath)
+        if (userRole === 'admin') {
+          console.log('Redirection vers /admin/users')
+          router.push('/admin/users')
+        } else {
+          console.log('Redirection vers /dashboard')
+          router.push('/dashboard')
+        }
       }
     } catch (error: any) {
+      setError('Une erreur est survenue lors de la connexion')
       console.error('Erreur de connexion:', error)
-      setError(error.message || 'Une erreur est survenue lors de la connexion')
     } finally {
       setIsLoading(false)
     }
@@ -90,7 +133,7 @@ export default function LoginPage() {
                   <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
                 </svg>
                 <p className="text-sm font-medium text-green-800">
-                  Connexion réussie ! Redirection en cours...
+                  {success}
                 </p>
               </div>
             </div>
