@@ -3,6 +3,10 @@ const nextConfig = {
   images: {
     domains: ['zigqfajbhdrqppftlapa.supabase.co'],
   },
+  env: {
+    NEXT_PUBLIC_SUPABASE_URL: 'https://zigqfajbhdrqppftlapa.supabase.co',
+    NEXT_PUBLIC_SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InppZ3FmYWpiaGRycXBwZnRsYXBhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDQ3OTUzMDUsImV4cCI6MjA2MDM3MTMwNX0.8sF6DE8tJuQbcMTgz8vdf2N2uAxI7TBNRiUeYTEQcYU',
+  },
 }
 
 export default nextConfig 
