@@ -55,22 +55,58 @@ export default function UserDetailsPage({ params }: { params: { userId: string }
 
   const fetchUserDetails = useCallback(async () => {
     try {
-      const { data, error } = await supabase
+      setIsLoading(true)
+      setError(null)
+
+      // Récupérer les informations de l'utilisateur
+      const { data: userData, error: userError } = await supabase
         .from('users')
         .select('*')
         .eq('id', params.userId)
         .single()
 
-      if (error) throw error
-      setUser(data)
+      if (userError) throw userError
+
+      // Récupérer les dossiers de l'utilisateur
+      const { data: foldersData, error: foldersError } = await supabase
+        .from('folders')
+        .select('*')
+        .eq('user_id', params.userId)
+
+      if (foldersError) throw foldersError
+
+      // Récupérer les photos de l'utilisateur
+      const { data: photosData, error: photosError } = await supabase
+        .from('photos')
+        .select('*')
+        .eq('user_id', params.userId)
+
+      if (photosError) throw photosError
+
+      // Structurer les données
+      const userWithData = {
+        ...userData,
+        folders: foldersData.map(folder => ({
+          ...folder,
+          photoCount: photosData.filter(photo => photo.folder_id === folder.id).length,
+          lastModified: new Date(folder.updated_at).toLocaleDateString(),
+          photos: photosData
+            .filter(photo => photo.folder_id === folder.id)
+            .map(photo => ({
+              ...photo,
+              uploaded_at: new Date(photo.uploaded_at).toLocaleDateString()
+            }))
+        }))
+      }
+
+      setUser(userWithData)
     } catch (error) {
       console.error('Erreur lors de la récupération des détails:', error)
+      setError('Erreur lors du chargement des données')
+    } finally {
+      setIsLoading(false)
     }
   }, [params.userId])
-
-  useEffect(() => {
-    fetchUserDetails()
-  }, [fetchUserDetails])
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -94,35 +130,77 @@ export default function UserDetailsPage({ params }: { params: { userId: string }
       fetchUserDetails()
     }
     checkAuth()
-  }, [router, params.userId])
+  }, [router, fetchUserDetails])
 
   const handleCreateFolder = async () => {
-    if (!newFolderName.trim()) {
-      setError('Le nom du dossier ne peut pas être vide')
-      return
-    }
+    if (!newFolderName.trim()) return
 
     try {
-      const { data, error } = await supabase
+      // Récupérer l'utilisateur actuel
+      const { data: currentUser, error: userError } = await supabase
+        .from('users')
+        .select('id, email, name')
+        .eq('email', user?.email)
+        .single()
+
+      console.log('Utilisateur actuel:', currentUser)
+
+      if (userError) {
+        console.error('Erreur lors de la récupération de l\'utilisateur:', userError)
+        setError('Erreur lors de la récupération de l\'utilisateur')
+        return
+      }
+
+      if (!currentUser) {
+        console.error('Utilisateur non trouvé')
+        setError('Utilisateur non trouvé')
+        return
+      }
+
+      const userId = currentUser.id
+      console.log('ID utilisateur trouvé:', userId)
+
+      // Créer le dossier
+      console.log('Création du dossier...')
+      const { data: folderData, error: folderError } = await supabase
         .from('folders')
         .insert([
           {
-            name: newFolderName.trim(),
-            user_id: params.userId,
-            created_at: new Date().toISOString()
+            name: newFolderName,
+            user_id: userId,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
           }
         ])
         .select()
         .single()
 
-      if (error) throw error
+      console.log('Résultat création dossier:', { folderData, folderError })
 
-      setIsCreatingFolder(false)
+      if (folderError) {
+        console.error('Erreur lors de la création du dossier:', folderError)
+        setError('Erreur lors de la création du dossier')
+        return
+      }
+
+      // Mettre à jour l'état local
+      setUser(prev => {
+        if (!prev) return null
+        return {
+          ...prev,
+          folders: [...prev.folders, {
+            ...folderData,
+            photoCount: 0,
+            lastModified: new Date().toISOString()
+          }]
+        }
+      })
+
       setNewFolderName('')
-      fetchUserDetails()
-    } catch (error: any) {
-      console.error('Erreur lors de la création du dossier:', error)
-      setError('Erreur lors de la création du dossier')
+      setIsCreatingFolder(false)
+    } catch (error) {
+      console.error('Erreur inattendue:', error)
+      setError('Une erreur est survenue lors de la création du dossier')
     }
   }
 
@@ -225,69 +303,89 @@ export default function UserDetailsPage({ params }: { params: { userId: string }
       for (let i = 0; i < files.length; i++) {
         const file = files[i]
         
-        // Vérification du type de fichier
+        // Vérifications de base
         if (!file.type.startsWith('image/')) {
           throw new Error(`Le fichier ${file.name} n'est pas une image valide`)
         }
 
-        // Vérification de la taille (max 10MB)
         if (file.size > 10 * 1024 * 1024) {
           throw new Error(`Le fichier ${file.name} est trop volumineux (max 10MB)`)
         }
 
-        const fileExt = file.name.split('.').pop()?.toLowerCase()
-        if (!fileExt) {
-          throw new Error(`Extension de fichier invalide pour ${file.name}`)
-        }
-
-        // Génération d'un nom de fichier unique
-        const timestamp = Date.now()
-        const randomString = Math.random().toString(36).substring(2, 8)
-        const fileName = `${timestamp}-${randomString}.${fileExt}`
+        // Compression de l'image
+        const compressedFile = await compressImage(file)
+        
+        // 1. Upload vers Storage
+        const fileName = `${Date.now()}-${file.name.replace(/[^a-zA-Z0-9.]/g, '_')}`
         const filePath = `${params.userId}/${folderId}/${fileName}`
-
-        // Upload du fichier
-        const { error: uploadError } = await supabase.storage
+        
+        const { data: storageData, error: storageError } = await supabase.storage
           .from('photos')
-          .upload(filePath, file, {
+          .upload(filePath, compressedFile, {
             cacheControl: '3600',
-            upsert: false
+            contentType: file.type
           })
 
-        if (uploadError) {
-          console.error('Erreur upload:', uploadError)
-          throw new Error(`Erreur lors de l'upload de ${file.name}: ${uploadError.message}`)
+        if (storageError) {
+          console.error('Erreur Storage:', storageError)
+          throw new Error(`Erreur lors de l'upload de ${file.name}: ${storageError.message}`)
         }
 
-        // Récupération de l'URL publique
+        // 2. Récupérer l'URL publique
         const { data: { publicUrl } } = supabase.storage
           .from('photos')
           .getPublicUrl(filePath)
 
-        // Insertion dans la base de données
-        const { error: dbError } = await supabase
+        console.log('URL publique:', publicUrl)
+
+        // 3. Créer l'entrée dans la table photos
+        const { data: photoData, error: dbError } = await supabase
           .from('photos')
           .insert([
             {
               name: file.name,
-              url: publicUrl,
-              size: file.size,
+              mime_type: file.type,
+              size: compressedFile.size,
               folder_id: folderId,
               user_id: params.userId,
-              uploaded_at: new Date().toISOString()
+              uploaded_at: new Date().toISOString(),
+              url: publicUrl
             }
           ])
+          .select()
+          .single()
 
         if (dbError) {
-          console.error('Erreur DB:', dbError)
+          // En cas d'erreur, supprimer le fichier uploadé
+          await supabase.storage
+            .from('photos')
+            .remove([filePath])
           throw new Error(`Erreur lors de l'enregistrement de ${file.name}: ${dbError.message}`)
         }
 
+        // 4. Mettre à jour l'interface
+        setUser(prev => {
+          if (!prev) return null
+          return {
+            ...prev,
+            folders: prev.folders.map(folder => {
+              if (folder.id === folderId) {
+                return {
+                  ...folder,
+                  photos: [{
+                    ...photoData,
+                    url: publicUrl
+                  }, ...folder.photos],
+                  photoCount: folder.photoCount + 1
+                }
+              }
+              return folder
+            })
+          }
+        })
+
         setUploadProgress(((i + 1) / files.length) * 100)
       }
-
-      // Rafraîchissement des données après l'upload
-      await fetchUserDetails()
     } catch (error: any) {
       console.error('Erreur lors de l\'upload des photos:', error)
       setError(error.message || 'Erreur lors de l\'upload des photos')
@@ -340,6 +438,57 @@ export default function UserDetailsPage({ params }: { params: { userId: string }
         newSet.add(folderId)
       }
       return newSet
+    })
+  }
+
+  const compressImage = async (file: File): Promise<File> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.readAsDataURL(file)
+      reader.onload = (event) => {
+        const img = document.createElement('img')
+        img.src = event.target?.result as string
+        img.onload = () => {
+          const canvas = document.createElement('canvas')
+          const ctx = canvas.getContext('2d')
+          if (!ctx) {
+            reject(new Error('Impossible de créer le contexte canvas'))
+            return
+          }
+
+          // Calculer les nouvelles dimensions
+          let width = img.width
+          let height = img.height
+          const maxDimension = 1920 // Taille maximale en pixels
+
+          if (width > height && width > maxDimension) {
+            height = Math.round((height * maxDimension) / width)
+            width = maxDimension
+          } else if (height > maxDimension) {
+            width = Math.round((width * maxDimension) / height)
+            height = maxDimension
+          }
+
+          canvas.width = width
+          canvas.height = height
+          ctx.drawImage(img, 0, 0, width, height)
+
+          // Convertir en JPEG avec une qualité de 80%
+          canvas.toBlob(
+            (blob) => {
+              if (!blob) {
+                reject(new Error('Impossible de compresser l\'image'))
+                return
+              }
+              resolve(new File([blob], file.name, { type: 'image/jpeg' }))
+            },
+            'image/jpeg',
+            0.8
+          )
+        }
+        img.onerror = () => reject(new Error('Erreur lors du chargement de l\'image'))
+      }
+      reader.onerror = () => reject(new Error('Erreur lors de la lecture du fichier'))
     })
   }
 

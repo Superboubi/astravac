@@ -10,30 +10,102 @@ export default function RegisterPage() {
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [success, setSuccess] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
+  const [isResending, setIsResending] = useState(false)
+
+  const handleResendVerification = async () => {
+    if (!email) {
+      setError('Veuillez entrer votre adresse email')
+      return
+    }
+
+    setIsResending(true)
+    setError(null)
+    setSuccess(null)
+
+    try {
+      const { error } = await supabase.auth.resend({
+        type: 'signup',
+        email,
+      })
+
+      if (error) {
+        setError('Erreur lors de l\'envoi de l\'email de vérification')
+        console.error('Erreur:', error)
+      } else {
+        setSuccess('Un nouvel email de vérification a été envoyé')
+      }
+    } catch (error) {
+      setError('Une erreur est survenue')
+      console.error('Erreur:', error)
+    } finally {
+      setIsResending(false)
+    }
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    setIsLoading(true)
     setError(null)
+    setSuccess(null)
+    setIsLoading(true)
+
+    if (password !== confirmPassword) {
+      setError('Les mots de passe ne correspondent pas')
+      setIsLoading(false)
+      return
+    }
 
     try {
-      const { error } = await supabase.auth.signUp({
+      const { data, error } = await supabase.auth.signUp({
         email,
         password,
         options: {
-          data: {
-            name,
-          },
+          emailRedirectTo: `${window.location.origin}/auth/callback`,
         },
       })
 
-      if (error) throw error
+      if (error) {
+        if (error.message.includes('User already registered')) {
+          setError('Un compte existe déjà avec cet email')
+          return
+        }
+        setError(error.message)
+        setIsLoading(false)
+        return
+      }
 
-      router.push('/auth/login?registered=true')
+      if (data?.user) {
+        // Créer l'utilisateur dans la table users
+        const { error: userError } = await supabase
+          .from('users')
+          .insert([
+            {
+              id: data.user.id,
+              email: data.user.email,
+              role: 'user',
+              name: data.user.email?.split('@')[0] || 'Utilisateur',
+            },
+          ])
+
+        if (userError) {
+          console.error('Erreur lors de la création de l\'utilisateur:', userError)
+          setError('Une erreur est survenue lors de la création du compte')
+          setIsLoading(false)
+          return
+        }
+
+        setSuccess('Un email de vérification a été envoyé à votre adresse')
+        setEmail('')
+        setPassword('')
+        setConfirmPassword('')
+        setName('')
+      }
     } catch (error: any) {
-      setError(error.message)
+      setError('Une erreur est survenue lors de l\'inscription')
+      console.error('Erreur:', error)
     } finally {
       setIsLoading(false)
     }
@@ -56,6 +128,39 @@ export default function RegisterPage() {
             {error && (
               <div className="rounded-lg bg-red-50 p-4 border border-red-200">
                 <div className="text-sm text-red-600">{error}</div>
+                {error.includes('Un compte existe déjà') && (
+                  <button
+                    type="button"
+                    onClick={handleResendVerification}
+                    disabled={isResending}
+                    className="mt-2 text-sm text-[#50AFC9] hover:text-[#3d8ca3] font-medium"
+                  >
+                    {isResending ? 'Envoi en cours...' : 'Renvoyer l\'email de vérification'}
+                  </button>
+                )}
+              </div>
+            )}
+            
+            {success && (
+              <div className="rounded-md bg-green-50 p-4">
+                <div className="flex">
+                  <div className="flex-shrink-0">
+                    <svg className="h-5 w-5 text-green-400" viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                    </svg>
+                  </div>
+                  <div className="ml-3">
+                    <h3 className="text-sm font-medium text-green-800">{success}</h3>
+                    <button
+                      type="button"
+                      onClick={handleResendVerification}
+                      disabled={isResending}
+                      className="mt-2 text-sm text-[#50AFC9] hover:text-[#3d8ca3] font-medium"
+                    >
+                      {isResending ? 'Envoi en cours...' : 'Renvoyer l\'email de vérification'}
+                    </button>
+                  </div>
+                </div>
               </div>
             )}
             
@@ -95,6 +200,19 @@ export default function RegisterPage() {
                   id="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
+                  className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-[#50AFC9] focus:border-transparent bg-white text-gray-900"
+                  required
+                />
+              </div>
+              <div>
+                <label htmlFor="confirm-password" className="block text-sm font-medium text-gray-700">
+                  Confirmer le mot de passe
+                </label>
+                <input
+                  type="password"
+                  id="confirm-password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
                   className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-[#50AFC9] focus:border-transparent bg-white text-gray-900"
                   required
                 />
